@@ -3,4 +3,7 @@ name = "srmap"
 version = "0.1.0"
 authors = ["alanamarzoev"]
 
+description = "A lock-free, eventually consistent, concurrent multi-value map."
+license = "MIT/Apache-2.0"
+
 [dependencies]
