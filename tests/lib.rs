@@ -28,7 +28,12 @@ fn it_works() {
         None => {}
     }
 
-    map.remove(k.clone(), uid2.clone());
+    map.remove(k.clone(), uid1.clone());
     println!("After remove: {:?}", map);
 
+    map.remove_user(uid1);
+    println!("After removing u1 {:?}", map);
+
+    map.remove_user(uid2);
+    println!("After removing u2 {:?}", map);
 }

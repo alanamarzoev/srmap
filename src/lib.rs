@@ -175,14 +175,31 @@ pub mod srmap {
         }
 
         pub fn remove_user(&mut self, uid: usize) {
+            let mut keys_to_del = Vec::new();
             // remove all u_map records for this user and revoke access from all global entries
             match self.id_store.get(&uid) {
                 Some(&id) => {
-                    for (_, bmap) in self.b_map.iter_mut() {
+                    for (k, bmap) in self.b_map.iter_mut() {
                         bmap[id] = false;
+
+                        // do some cleanup: delete record if no users access it anymore
+                        let mut delete_whole = true;
+                        for flag in bmap.iter() {
+                            if *flag {
+                                delete_whole = false;
+                            }
+                        }
+                        if delete_whole {
+                            keys_to_del.push(k.clone());
+                        }
                     }
                 },
                 None => {}
+            }
+
+            for k in &keys_to_del {
+                self.g_map.remove(k);
+                self.b_map.remove(k);
             }
         }
     }
