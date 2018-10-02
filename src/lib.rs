@@ -14,12 +14,11 @@ pub mod srmap {
     pub struct SRMap<K, V>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
-        std::string::String: std::convert::From<K>,
         V: std::cmp::PartialEq + Clone + Eq,
     {
         pub g_map: HashMap<K, V>, // Global map
         pub b_map: HashMap<K, Vec<bool>>, // Auxiliary bit map for global map
-        pub u_map: HashMap<String, V>, // Universe specific map (used only when K,V conflict with g_map)
+        pub u_map: HashMap<(String, K), V>, // Universe specific map (used only when K,V conflict with g_map)
         pub id_store: HashMap<usize, usize>,
         largest: i32
     }
@@ -27,7 +26,6 @@ pub mod srmap {
     impl<K, V> SRMap<K, V>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
-        std::string::String: std::convert::From<K>,
         V: std::cmp::PartialEq + Clone + Eq,
     {
 
@@ -64,9 +62,9 @@ pub mod srmap {
                         } else {
                         // if v is different, insert (k,v) into umap as ('uid:k',v)
                             let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
-                            let k_str: String = String::from(k).to_owned();
-                            let u_key = format!("{}{}", uid_str, k_str);
-                            self.u_map.insert(u_key.clone(), v.clone());
+                            //let k_str: String = String::from(k).to_owned();
+                            let key = (uid_str, k.clone());
+                            self.u_map.insert(key, v.clone());
                         }
                     },
                     // add record to global map if it isn't already there
@@ -92,10 +90,10 @@ pub mod srmap {
         pub fn get(&self, k: K, uid: usize) -> Option<V> {
             let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
             //let uid_str: String =  String::from(uid).to_owned();
-            let k_str: String = String::from(k.clone()).to_owned();
-            let first_check = format!("{}{}", uid_str, k_str);
-
-            match self.u_map.get(&first_check) {
+            // let k_str: String = String::from(k.clone()).to_owned();
+            // let first_check = format!("{}{}", uid_str, k_str);
+            let key = (uid_str, k.clone());
+            match self.u_map.get(&key) {
                Some(val) => {Some(val.clone())},
                _ => {match self.g_map.get(&k) {
                         Some(g_val) => {
@@ -130,13 +128,15 @@ pub mod srmap {
         pub fn remove(&mut self, k: K, uid: usize) {
             println!("in remove!");
             let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
-            let k_str: String = String::from(k.clone()).to_owned();
-            let first_check = format!("{}{}", uid_str, k_str);
+            // let k_str: String = String::from(k.clone()).to_owned();
+            // let first_check = format!("{}{}", uid_str, k_str);
+
+            let key = (uid_str, k.clone());
             let mut remove_entirely = true;
             let mut hit_inner = false;
 
-            if self.u_map.contains_key(&first_check) {
-                self.u_map.remove(&first_check);
+            if self.u_map.contains_key(&key) {
+                self.u_map.remove(&key);
             }
 
             if self.g_map.contains_key(&k){
@@ -212,7 +212,6 @@ pub mod srmap {
     pub struct WriteHandle<K, V>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
-        std::string::String: std::convert::From<K>,
         V: Eq + Clone,
     {
         handle: Arc<RwLock<SRMap<K, V>>>,
@@ -223,7 +222,6 @@ pub mod srmap {
     ) -> WriteHandle<K, V>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
-        std::string::String: std::convert::From<K>,
         V: Eq + Clone,
     {
         WriteHandle {
@@ -234,7 +232,6 @@ pub mod srmap {
     impl<K, V> WriteHandle<K, V>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
-        std::string::String: std::convert::From<K>,
         V: Eq + Clone,
     {
         // Add the given value to the value-set of the given key.
@@ -271,7 +268,6 @@ pub mod srmap {
     pub struct ReadHandle<K, V>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
-        std::string::String: std::convert::From<K>,
         V: Eq + Clone,
     {
         pub(crate) inner: Arc<RwLock<SRMap<K, V>>>,
@@ -281,7 +277,6 @@ pub mod srmap {
     impl<K, V> Clone for ReadHandle<K, V>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
-        std::string::String: std::convert::From<K>,
         V: Eq + Clone,
     {
         fn clone(&self) -> Self {
@@ -294,7 +289,6 @@ pub mod srmap {
     pub fn new_read<K, V>(store: Arc<RwLock<SRMap<K, V>>>) -> ReadHandle<K, V>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
-        std::string::String: std::convert::From<K>,
         V: Eq + Clone,
     {
         ReadHandle {
@@ -305,7 +299,6 @@ pub mod srmap {
     impl<K, V> ReadHandle<K, V>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
-        std::string::String: std::convert::From<K>,
         V: Eq + Clone,
     {
         pub fn get_lock(&self) -> Arc<RwLock<SRMap<K,V>>>
@@ -361,7 +354,6 @@ pub mod srmap {
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
         V: Eq + Clone,
-        std::string::String: std::convert::From<K>,
     {
         let locked_map = Arc::new(RwLock::new(SRMap::<K,V>::new()));
         let r_handle = new_read(locked_map);
