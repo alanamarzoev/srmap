@@ -224,7 +224,9 @@ pub mod srmap {
         use write;
         let locked_map = Arc::new(RwLock::new(SRMap::<K,V>::new()));
         let r_handle = read::new(locked_map);
-        let w_handle = write::new(r_handle.get_lock());
+        let lock = r_handle.get_lock();
+        let w_handle = write::new(lock.clone());
+        //let gmap1 = lock.read().unwrap();
         (r_handle, w_handle)
     }
 }
