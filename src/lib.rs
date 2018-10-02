@@ -1,10 +1,18 @@
 #![feature(trivial_bounds)]
 #![feature(extern_prelude)]
 
+mod write;
+mod read;
+
 pub mod srmap {
     use std::collections::HashMap;
     use std::hash::Hash;
     use std::char;
+
+    use read::ReadHandle;
+    use write::WriteHandle;
+
+    use std::sync::{Arc, RwLock};
 
     #[derive(Clone)]
     #[derive(Debug)]
@@ -12,12 +20,12 @@ pub mod srmap {
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
         std::string::String: std::convert::From<K>,
-        V: std::cmp::PartialEq + Clone,
+        V: std::cmp::PartialEq + Clone + Eq,
     {
-        g_map: HashMap<K, V>, // Global map
-        b_map: HashMap<K, Vec<bool>>, // Auxiliary bit map for global map
-        u_map: HashMap<String, V>, // Universe specific map (used only when K,V conflict with g_map)
-        id_store: HashMap<usize, usize>,
+        pub g_map: HashMap<K, V>, // Global map
+        pub b_map: HashMap<K, Vec<bool>>, // Auxiliary bit map for global map
+        pub u_map: HashMap<String, V>, // Universe specific map (used only when K,V conflict with g_map)
+        pub id_store: HashMap<usize, usize>,
         largest: i32
     }
 
@@ -25,10 +33,10 @@ pub mod srmap {
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
         std::string::String: std::convert::From<K>,
-        V: std::cmp::PartialEq + Clone,
+        V: std::cmp::PartialEq + Clone + Eq,
     {
 
-        pub fn new() -> Self {
+        pub fn new() -> SRMap<K, V> {
             SRMap{
                 g_map: HashMap::new(),
                 b_map: HashMap::new(),
@@ -86,7 +94,7 @@ pub mod srmap {
             }
         }
 
-        pub fn get(&mut self, k: K, uid: usize) -> Option<V> {
+        pub fn get(&self, k: K, uid: usize) -> Option<V> {
             let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
             //let uid_str: String =  String::from(uid).to_owned();
             let k_str: String = String::from(k.clone()).to_owned();
@@ -96,7 +104,7 @@ pub mod srmap {
                Some(val) => {Some(val.clone())},
                _ => {match self.g_map.get(&k) {
                         Some(g_val) => {
-                            match self.b_map.get_mut(&k) {
+                            match self.b_map.get(&k) {
                                 Some(bitmap) => {
                                     match self.id_store.get(&uid) {
                                         Some(&id) => {
@@ -201,9 +209,22 @@ pub mod srmap {
                 self.g_map.remove(k);
                 self.b_map.remove(k);
             }
+
+            // remove all umap keys that start with this id
         }
     }
-    pub fn new() {
-        unimplemented!();
+
+    pub fn construct<K, V>() -> (ReadHandle<K, V>, WriteHandle<K, V>)
+    where
+        K: Eq + Hash + Clone + std::fmt::Debug,
+        V: Eq + Clone,
+        std::string::String: std::convert::From<K>,
+    {
+        use read;
+        use write;
+        let locked_map = Arc::new(RwLock::new(SRMap::<K,V>::new()));
+        let r_handle = read::new(locked_map);
+        let w_handle = write::new(r_handle.get_lock());
+        (r_handle, w_handle)
     }
 }
