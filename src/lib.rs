@@ -1,17 +1,12 @@
 #![feature(trivial_bounds)]
 #![feature(extern_prelude)]
 
-mod write;
-mod read;
 
 pub mod srmap {
     use std::collections::HashMap;
     use std::hash::Hash;
     use std::char;
-
-    use read::ReadHandle;
-    use write::WriteHandle;
-
+    use std::borrow::Borrow;
     use std::sync::{Arc, RwLock};
 
     #[derive(Clone)]
@@ -214,19 +209,167 @@ pub mod srmap {
         }
     }
 
+    pub struct WriteHandle<K, V>
+    where
+        K: Eq + Hash + std::fmt::Debug + Clone,
+        std::string::String: std::convert::From<K>,
+        V: Eq + Clone,
+    {
+        handle: Arc<RwLock<SRMap<K, V>>>,
+    }
+
+    pub fn new_write<K, V>(
+        lock: Arc<RwLock<SRMap<K, V>>>,
+    ) -> WriteHandle<K, V>
+    where
+        K: Eq + Hash + std::fmt::Debug + Clone,
+        std::string::String: std::convert::From<K>,
+        V: Eq + Clone,
+    {
+        WriteHandle {
+            handle: lock,
+        }
+    }
+
+    impl<K, V> WriteHandle<K, V>
+    where
+        K: Eq + Hash + std::fmt::Debug + Clone,
+        std::string::String: std::convert::From<K>,
+        V: Eq + Clone,
+    {
+        // Add the given value to the value-set of the given key.
+        pub fn insert(&mut self, k: K, v: V, uid: usize) {
+            let mut w_handle = self.handle.write().unwrap();
+            w_handle.insert(k.clone(), v.clone(), uid.clone());
+        }
+
+        // Replace the value-set of the given key with the given value.
+        pub fn update(&mut self, k: K, v: V, uid: usize) {
+            let mut w_handle = self.handle.write().unwrap();
+            w_handle.insert(k.clone(), v.clone(), uid.clone());
+        }
+
+        // Remove the given value from the value-set of the given key.
+        pub fn remove(&mut self, k: K, uid: usize) {
+            let mut w_handle = self.handle.write().unwrap();
+            w_handle.remove(k.clone(), uid.clone());
+        }
+
+        pub fn add_user(&mut self, uid: usize) {
+            let mut w_handle = self.handle.write().unwrap();
+            w_handle.add_user(uid.clone());
+        }
+
+        pub fn remove_user(&mut self, uid: usize) {
+            let mut w_handle = self.handle.write().unwrap();
+            w_handle.remove_user(uid.clone());
+        }
+
+    }
+
+    /// A handle that may be used to read from the SRMap.
+    pub struct ReadHandle<K, V>
+    where
+        K: Eq + Hash + std::fmt::Debug + Clone,
+        std::string::String: std::convert::From<K>,
+        V: Eq + Clone,
+    {
+        pub(crate) inner: Arc<RwLock<SRMap<K, V>>>,
+    }
+
+
+    impl<K, V> Clone for ReadHandle<K, V>
+    where
+        K: Eq + Hash + std::fmt::Debug + Clone,
+        std::string::String: std::convert::From<K>,
+        V: Eq + Clone,
+    {
+        fn clone(&self) -> Self {
+            ReadHandle {
+                inner: self.inner.clone()
+            }
+        }
+    }
+
+    pub fn new_read<K, V>(store: Arc<RwLock<SRMap<K, V>>>) -> ReadHandle<K, V>
+    where
+        K: Eq + Hash + std::fmt::Debug + Clone,
+        std::string::String: std::convert::From<K>,
+        V: Eq + Clone,
+    {
+        ReadHandle {
+            inner: store,
+        }
+    }
+
+    impl<K, V> ReadHandle<K, V>
+    where
+        K: Eq + Hash + std::fmt::Debug + Clone,
+        std::string::String: std::convert::From<K>,
+        V: Eq + Clone,
+    {
+        pub fn get_lock(&self) -> Arc<RwLock<SRMap<K,V>>>
+        {
+            self.inner.clone() // TODO make sure this is valid! want to keep only one locked map
+        }
+
+        /// Returns the number of non-empty keys present in the map.
+        pub fn len(&self) -> usize {
+            let r_handle = self.inner.read().unwrap();
+            r_handle.g_map.len()
+        }
+
+        /// Returns true if the map contains no elements.
+        pub fn is_empty(&self) -> bool {
+            let r_handle = self.inner.read().unwrap();
+            r_handle.g_map.is_empty()
+        }
+
+        /// Applies a function to the values corresponding to the key, and returns the result.
+        pub fn get_and<F, T>(&self, key: K, then: F, uid: usize) -> Option<T>
+        where
+            F: FnOnce(&V) -> T,
+        {
+            let r_handle = self.inner.read().unwrap();
+            // r_handle.what;
+            match r_handle.get(key, uid) {
+                Some(res) => Some(then(&res)),
+                None => None
+            }
+        }
+
+        /// Applies a function to the values corresponding to the key, and returns the result.
+        pub fn get(&self, key: K, uid: usize) -> Option<V>
+        {
+            let r_handle = self.inner.read().unwrap();
+            // r_handle.what;
+            r_handle.get(key, uid)
+
+        }
+
+        pub fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool
+        where
+            K: Borrow<Q>,
+            Q: Hash + Eq,
+        {
+            let r_handle = self.inner.read().unwrap();
+            r_handle.g_map.contains_key(key)
+        }
+    }
+
     pub fn construct<K, V>() -> (ReadHandle<K, V>, WriteHandle<K, V>)
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
         V: Eq + Clone,
         std::string::String: std::convert::From<K>,
     {
-        use read;
-        use write;
         let locked_map = Arc::new(RwLock::new(SRMap::<K,V>::new()));
-        let r_handle = read::new(locked_map);
+        let r_handle = new_read(locked_map);
         let lock = r_handle.get_lock();
-        let w_handle = write::new(lock.clone());
+        let w_handle = new_write(lock);
         //let gmap1 = lock.read().unwrap();
         (r_handle, w_handle)
     }
+
+
 }
