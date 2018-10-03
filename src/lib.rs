@@ -14,7 +14,7 @@ pub mod srmap {
     pub struct SRMap<K, V>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
-        V: std::cmp::PartialEq + Clone + Eq,
+        V: Clone + Eq,
     {
         pub g_map: HashMap<K, V>, // Global map
         pub b_map: HashMap<K, Vec<bool>>, // Auxiliary bit map for global map
@@ -26,7 +26,7 @@ pub mod srmap {
     impl<K, V> SRMap<K, V>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
-        V: std::cmp::PartialEq + Clone + Eq,
+        V: Clone + Eq,
     {
 
         pub fn new() -> SRMap<K, V> {
@@ -321,12 +321,31 @@ pub mod srmap {
         /// Applies a function to the values corresponding to the key, and returns the result.
         pub fn get_and<F, T>(&self, key: K, then: F, uid: usize) -> Option<T>
         where
+            K: Hash + Eq,
             F: FnOnce(&V) -> T,
         {
             let r_handle = self.inner.read().unwrap();
-            // r_handle.what;
             match r_handle.get(key, uid) {
-                Some(res) => Some(then(&res)),
+                Some(res) => {
+                    let first = Some(then(&res));
+                    first
+                },
+                None => None
+            }
+        }
+
+
+        pub fn meta_get_and<F, T>(&self, key: K, then: F, uid: usize) -> Option<(Option<T>, Option<T>)>
+        where
+            T: std::iter::FromIterator<T>,
+            F: FnOnce(&V) -> T,
+        {
+            let r_handle = self.inner.read().unwrap();
+            match r_handle.get(key, uid) {
+                Some(res) => {
+                    let final_res = Some(then(&res));
+                    Some((final_res, None))
+                },
                 None => None
             }
         }
@@ -339,6 +358,21 @@ pub mod srmap {
             r_handle.get(key, uid)
 
         }
+
+        /// Read all values in the map, and transform them into a new collection.
+        ///
+        /// Be careful with this function! While the iteration is ongoing, any writer that tries to
+        /// refresh will block waiting on this reader to finish.
+        // pub fn for_each<F>(&self, mut f: F)
+        // where
+        //     F: FnMut(&K, &[V]),
+        // {
+        //     self.with_handle(move |inner| {
+        //         for (k, vs) in &inner.data {
+        //             f(k, &vs[..])
+        //         }
+        //     });
+        // }
 
         pub fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool
         where
