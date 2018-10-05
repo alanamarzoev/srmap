@@ -352,6 +352,16 @@ pub mod srmap {
             r_handle.get(key, uid).map(move |v| then(&**v))
         }
 
+        pub fn meta_get_and<F, T>(&self, key: K, then: F, uid: usize) -> Option<(Option<T>, Option<T>)>
+        where
+            K: Hash + Eq,
+            F: FnOnce(&[V]) -> T,
+        {
+            let r_handle = self.inner.read().unwrap();
+            Some((r_handle.get(key, uid).map(move |v| then(&**v)), None)) 
+
+        }
+
         fn with_handle<F, T>(&self, f: F) -> Option<T>
         where
            F: FnOnce(&SRMap<K, V>) -> T,
