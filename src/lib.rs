@@ -88,14 +88,14 @@ pub mod srmap {
             }
         }
 
-        pub fn get(&self, k: K, uid: usize) -> Option<Vec<V>> {
+        pub fn get(&self, k: K, uid: usize) -> Option<&Vec<V>> {
             let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
             //let uid_str: String =  String::from(uid).to_owned();
             // let k_str: String = String::from(k.clone()).to_owned();
             // let first_check = format!("{}{}", uid_str, k_str);
             let key = (uid_str, k.clone());
             match self.u_map.get(&key) {
-               Some(val) => {Some(val.clone())},
+               Some(val) => {Some(&val)},
                _ => {match self.g_map.get(&k) {
                         Some(g_val) => {
                             match self.b_map.get(&k) {
@@ -104,7 +104,8 @@ pub mod srmap {
                                         Some(&id) => {
                                             let accessible = bitmap[id];
                                             if accessible {
-                                                return Some(g_val.clone());
+                                                let return_val = Some(g_val);
+                                                return return_val;
                                             }
                                             else {
                                                 return None;
@@ -237,7 +238,7 @@ pub mod srmap {
     {
         // Add the given value to the value-set of the given key.
         pub fn insert(&mut self, k: K, v: V, uid: usize) {
-            let container = Vec::new();
+            let mut container = Vec::new();
             container.push(v);
             let mut w_handle = self.handle.write().unwrap();
             w_handle.insert(k.clone(), container, uid.clone());
@@ -245,7 +246,7 @@ pub mod srmap {
 
         // Replace the value-set of the given key with the given value.
         pub fn update(&mut self, k: K, v: V, uid: usize) {
-            let container = Vec::new();
+            let mut container = Vec::new();
             container.push(v);
             let mut w_handle = self.handle.write().unwrap();
             w_handle.insert(k.clone(), container, uid.clone());
@@ -271,6 +272,20 @@ pub mod srmap {
             return
         }
 
+        pub fn empty(&mut self, k: K, uid: usize) {
+            let mut w_handle = self.handle.write().unwrap();
+            w_handle.remove(k.clone(), uid.clone());
+        }
+
+        pub fn clear(&mut self, k: K, uid: usize) {
+            let mut w_handle = self.handle.write().unwrap();
+            w_handle.remove(k.clone(), uid.clone());
+        }
+
+        pub fn empty_at_index(&mut self, k: K, uid: usize) {
+            let mut w_handle = self.handle.write().unwrap();
+            w_handle.remove(k.clone(), uid.clone());
+        }
     }
 
     /// A handle that may be used to read from the SRMap.
@@ -327,74 +342,35 @@ pub mod srmap {
             r_handle.g_map.is_empty()
         }
 
-        fn with_handle<F, T>(&self, f: F) -> Option<T>
+        /// Applies a function to the values corresponding to the key, and returns the result.
+        pub fn get_and<F, T>(&self, key: K, then: F, uid: usize) -> Option<T>
         where
-            F: FnOnce(&SRMap<K, V>) -> T,
+            K: Hash + Eq,
+            F: FnOnce(&[V]) -> T,
         {
             let r_handle = self.inner.read().unwrap();
+            r_handle.get(key, uid).map(move |v| then(&**v))
+        }
 
-            let mut res = None;
-            if !r_handle.is_null() {
-                res = Some(f(&r_handle));
-            }
-
+        fn with_handle<F, T>(&self, f: F) -> Option<T>
+        where
+           F: FnOnce(&SRMap<K, V>) -> T,
+        {
+            let r_handle = &*self.inner.read().unwrap();
+            let res = Some(f(&r_handle));
             res
         }
 
-
-        /// Applies a function to the values corresponding to the key, and returns the result.
-        pub fn get_and<F, T>(&self, key: K, then: F, uid: usize) -> T
-        where
-            K: Hash + Eq,
-            F: FnOnce(&V) -> T
-        {
-            let r_handle = self.inner.read().unwrap();
-            match r_handle.get(key, uid) {
-                Some(res) => {
-                    let final_res = res.map(|v| then(v));
-                    Some(final_res)
-                },
-                None => None
-            }
-        }
-
-        pub fn meta_get_and<F, T>(&self, key: K, then: F, uid: usize) -> Option<(Option<T>, Option<T>)>
-        where
-            T: std::iter::FromIterator<T>,
-            F: FnOnce(&V) -> T,
-        {
-            let r_handle = self.inner.read().unwrap();
-            match r_handle.get(key, uid) {
-                Some(res) => {
-                    let final_res = Some(then(&res));
-                    Some((final_res, None))
-                },
-                None => None
-            }
-        }
-
-        /// Applies a function to the values corresponding to the key, and returns the result.
-        pub fn get(&self, key: K, uid: usize) -> Option<V>
-        {
-            let r_handle = self.inner.read().unwrap();
-            // r_handle.what;
-            r_handle.get(key, uid)
-
-        }
-
         /// Read all values in the map, and transform them into a new collection.
-        ///
-        /// Be careful with this function! While the iteration is ongoing, any writer that tries to
-        /// refresh will block waiting on this reader to finish.
         pub fn for_each<F>(&self, mut f: F)
         where
-            F: FnMut(&K, &V),
+            F: FnMut(&K, &[V]),
         {
-            let r_handle = self.inner.read().unwrap();
+            let r_handle = &*self.inner.read().unwrap();
 
             self.with_handle(move |inner| {
-                for (k, vs) in &inner.data {
-                    f(k, &vs[..])
+                for (k, vs) in r_handle.g_map.iter() {
+                    f(k, vs)
                 }
             });
         }
