@@ -72,14 +72,14 @@ where
 //     }
 // }
 //
-// use std::ops::Deref;
-// impl<K, V> Deref for WriteHandle<K, V>
-// where
-//     K: Eq + Hash + Clone,
-//     V: Eq + ShallowCopy,
-// {
-//     type Target = ReadHandle<K, V>;
-//     fn deref(&self) -> &Self::Target {
-//         &self.r_handle
-//     }
-// }
+use std::ops::Deref;
+impl<K, V> Deref for WriteHandle<K, V>
+where
+    K: Eq + Hash + Clone,
+    V: Eq + ShallowCopy,
+{
+    type Target = ReadHandle<K, V>;
+    fn deref(&self) -> &Self::Target {
+        &self.r_handle
+    }
+}
