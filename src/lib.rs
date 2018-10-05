@@ -16,9 +16,9 @@ pub mod srmap {
         K: Eq + Hash + Clone + std::fmt::Debug,
         V: Clone + Eq,
     {
-        pub g_map: HashMap<K, V>, // Global map
+        pub g_map: HashMap<K, Vec<V>>, // Global map
         pub b_map: HashMap<K, Vec<bool>>, // Auxiliary bit map for global map
-        pub u_map: HashMap<(String, K), V>, // Universe specific map (used only when K,V conflict with g_map)
+        pub u_map: HashMap<(String, K), Vec<V>>, // Universe specific map (used only when K,V conflict with g_map)
         pub id_store: HashMap<usize, usize>,
         largest: i32
     }
@@ -39,7 +39,7 @@ pub mod srmap {
             }
         }
 
-        pub fn insert(&mut self, k: K, v: V, uid: usize){
+        pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize){
             println!("in insert!");
             // check if record is in the global map
             if self.g_map.contains_key(&k) {
@@ -59,7 +59,8 @@ pub mod srmap {
                                 },
                                 None => {}
                             }
-                        } else {
+                        }
+                        else {
                         // if v is different, insert (k,v) into umap as ('uid:k',v)
                             let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
                             //let k_str: String = String::from(k).to_owned();
@@ -87,7 +88,7 @@ pub mod srmap {
             }
         }
 
-        pub fn get(&self, k: K, uid: usize) -> Option<V> {
+        pub fn get(&self, k: K, uid: usize) -> Option<Vec<V>> {
             let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
             //let uid_str: String =  String::from(uid).to_owned();
             // let k_str: String = String::from(k.clone()).to_owned();
@@ -236,14 +237,18 @@ pub mod srmap {
     {
         // Add the given value to the value-set of the given key.
         pub fn insert(&mut self, k: K, v: V, uid: usize) {
+            let container = Vec::new();
+            container.push(v);
             let mut w_handle = self.handle.write().unwrap();
-            w_handle.insert(k.clone(), v.clone(), uid.clone());
+            w_handle.insert(k.clone(), container, uid.clone());
         }
 
         // Replace the value-set of the given key with the given value.
         pub fn update(&mut self, k: K, v: V, uid: usize) {
+            let container = Vec::new();
+            container.push(v);
             let mut w_handle = self.handle.write().unwrap();
-            w_handle.insert(k.clone(), v.clone(), uid.clone());
+            w_handle.insert(k.clone(), container, uid.clone());
         }
 
         // Remove the given value from the value-set of the given key.
@@ -260,6 +265,10 @@ pub mod srmap {
         pub fn remove_user(&mut self, uid: usize) {
             let mut w_handle = self.handle.write().unwrap();
             w_handle.remove_user(uid.clone());
+        }
+
+        pub fn refresh() {
+            return
         }
 
     }
@@ -318,22 +327,36 @@ pub mod srmap {
             r_handle.g_map.is_empty()
         }
 
+        fn with_handle<F, T>(&self, f: F) -> Option<T>
+        where
+            F: FnOnce(&SRMap<K, V>) -> T,
+        {
+            let r_handle = self.inner.read().unwrap();
+
+            let mut res = None;
+            if !r_handle.is_null() {
+                res = Some(f(&r_handle));
+            }
+
+            res
+        }
+
+
         /// Applies a function to the values corresponding to the key, and returns the result.
-        pub fn get_and<F, T>(&self, key: K, then: F, uid: usize) -> Option<T>
+        pub fn get_and<F, T>(&self, key: K, then: F, uid: usize) -> T
         where
             K: Hash + Eq,
-            F: FnOnce(&V) -> T,
+            F: FnOnce(&V) -> T
         {
             let r_handle = self.inner.read().unwrap();
             match r_handle.get(key, uid) {
                 Some(res) => {
-                    let first = Some(then(&res));
-                    first
+                    let final_res = res.map(|v| then(v));
+                    Some(final_res)
                 },
                 None => None
             }
         }
-
 
         pub fn meta_get_and<F, T>(&self, key: K, then: F, uid: usize) -> Option<(Option<T>, Option<T>)>
         where
@@ -363,16 +386,18 @@ pub mod srmap {
         ///
         /// Be careful with this function! While the iteration is ongoing, any writer that tries to
         /// refresh will block waiting on this reader to finish.
-        // pub fn for_each<F>(&self, mut f: F)
-        // where
-        //     F: FnMut(&K, &[V]),
-        // {
-        //     self.with_handle(move |inner| {
-        //         for (k, vs) in &inner.data {
-        //             f(k, &vs[..])
-        //         }
-        //     });
-        // }
+        pub fn for_each<F>(&self, mut f: F)
+        where
+            F: FnMut(&K, &V),
+        {
+            let r_handle = self.inner.read().unwrap();
+
+            self.with_handle(move |inner| {
+                for (k, vs) in &inner.data {
+                    f(k, &vs[..])
+                }
+            });
+        }
 
         pub fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool
         where
