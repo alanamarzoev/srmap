@@ -11,7 +11,7 @@ pub mod srmap {
 
     #[derive(Clone)]
     #[derive(Debug)]
-    pub struct SRMap<K, V>
+    pub struct SRMap<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
         V: Clone + Eq,
@@ -20,16 +20,17 @@ pub mod srmap {
         pub b_map: HashMap<K, Vec<bool>>, // Auxiliary bit map for global map
         pub u_map: HashMap<(String, K), Vec<V>>, // Universe specific map (used only when K,V conflict with g_map)
         pub id_store: HashMap<usize, usize>,
-        largest: i32
+        largest: i32,
+        pub meta: M, 
     }
 
-    impl<K, V> SRMap<K, V>
+    impl<K, V, M> SRMap<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
         V: Clone + Eq,
     {
 
-        pub fn new() -> SRMap<K, V> {
+        pub fn new() -> SRMap<K, V, M> {
             SRMap{
                 g_map: HashMap::new(),
                 b_map: HashMap::new(),
@@ -211,30 +212,33 @@ pub mod srmap {
         }
     }
 
-    pub struct WriteHandle<K, V>
+    pub struct WriteHandle<K, V, M = ()>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
         V: Eq + Clone,
+        M: 'static + Clone,
     {
-        handle: Arc<RwLock<SRMap<K, V>>>,
+        handle: Arc<RwLock<SRMap<K, V, M>>>,
     }
 
-    pub fn new_write<K, V>(
-        lock: Arc<RwLock<SRMap<K, V>>>,
-    ) -> WriteHandle<K, V>
+    pub fn new_write<K, V, M>(
+        lock: Arc<RwLock<SRMap<K, V, M>>>,
+    ) -> WriteHandle<K, V, M>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
         V: Eq + Clone,
+        M: 'static + Clone,
     {
         WriteHandle {
             handle: lock,
         }
     }
 
-    impl<K, V> WriteHandle<K, V>
+    impl<K, V, M> WriteHandle<K, V, M>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
         V: Eq + Clone,
+        M: 'static + Clone,
     {
         // Add the given value to the value-set of the given key.
         pub fn insert(&mut self, k: K, v: V, uid: usize) {
@@ -286,22 +290,26 @@ pub mod srmap {
             let mut w_handle = self.handle.write().unwrap();
             w_handle.remove(k.clone(), uid.clone());
         }
+
+        // pub fn is_empty()
     }
 
     /// A handle that may be used to read from the SRMap.
-    pub struct ReadHandle<K, V>
+    pub struct ReadHandle<K, V, M = ()>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
         V: Eq + Clone,
+        M: 'static + Clone,
     {
-        pub(crate) inner: Arc<RwLock<SRMap<K, V>>>,
+        pub(crate) inner: Arc<RwLock<SRMap<K, V, M>>>,
     }
 
 
-    impl<K, V> Clone for ReadHandle<K, V>
+    impl<K, V, M> Clone for ReadHandle<K, V, M>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
         V: Eq + Clone,
+        M: 'static + Clone,
     {
         fn clone(&self) -> Self {
             ReadHandle {
@@ -310,22 +318,30 @@ pub mod srmap {
         }
     }
 
-    pub fn new_read<K, V>(store: Arc<RwLock<SRMap<K, V>>>) -> ReadHandle<K, V>
+    pub fn new_read<K, V, M>(store: Arc<RwLock<SRMap<K, V, M>>>) -> ReadHandle<K, V, M>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
         V: Eq + Clone,
+        M: 'static + Clone,
     {
         ReadHandle {
             inner: store,
         }
     }
 
-    impl<K, V> ReadHandle<K, V>
+    impl<K, V, M> ReadHandle<K, V, M>
     where
         K: Eq + Hash + std::fmt::Debug + Clone,
         V: Eq + Clone,
+        M: 'static + Clone,
     {
-        pub fn get_lock(&self) -> Arc<RwLock<SRMap<K,V>>>
+        /// Get the current meta value.
+        pub fn meta(&self) -> Option<M> {
+           self.with_handle(|inner| inner.meta.clone())
+        }
+
+        /// Applies a function to the values corresponding to the key, and returns the result.
+        pub fn get_lock(&self) -> Arc<RwLock<SRMap<K, V, M>>>
         {
             self.inner.clone() // TODO make sure this is valid! want to keep only one locked map
         }
@@ -352,19 +368,19 @@ pub mod srmap {
             r_handle.get(key, uid).map(move |v| then(&**v))
         }
 
-        pub fn meta_get_and<F, T>(&self, key: K, then: F, uid: usize) -> Option<(Option<T>, Option<T>)>
+        pub fn meta_get_and<F, T>(&self, key: K, then: F, uid: usize) -> Option<(Option<T>, M)>
         where
             K: Hash + Eq,
             F: FnOnce(&[V]) -> T,
         {
             let r_handle = self.inner.read().unwrap();
-            Some((r_handle.get(key, uid).map(move |v| then(&**v)), None)) 
+            Some((r_handle.get(key, uid).map(move |v| then(&**v)), None))
 
         }
 
         fn with_handle<F, T>(&self, f: F) -> Option<T>
         where
-           F: FnOnce(&SRMap<K, V>) -> T,
+           F: FnOnce(&SRMap<K, V, M>) -> T,
         {
             let r_handle = &*self.inner.read().unwrap();
             let res = Some(f(&r_handle));
@@ -395,12 +411,13 @@ pub mod srmap {
         }
     }
 
-    pub fn construct<K, V>() -> (ReadHandle<K, V>, WriteHandle<K, V>)
+    pub fn construct<K, V, M>() -> (ReadHandle<K, V, M>, WriteHandle<K, V, M>)
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
         V: Eq + Clone,
+        M: 'static + Clone,
     {
-        let locked_map = Arc::new(RwLock::new(SRMap::<K,V>::new()));
+        let locked_map = Arc::new(RwLock::new(SRMap::<K,V, M>::new()));
         let r_handle = new_read(locked_map);
         let lock = r_handle.get_lock();
         let w_handle = new_write(lock);
