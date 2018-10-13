@@ -302,7 +302,11 @@ pub mod srmap {
 
        }
 
-       // pub fn is_empty()
+       pub fn is_empty(&self) -> bool {
+           let r_handle = self.handle.read().unwrap();
+           r_handle.g_map.is_empty()
+       }
+
    }
 
    /// A handle that may be used to read from the SRMap.
@@ -403,13 +407,11 @@ pub mod srmap {
        where
            F: FnMut(&K, &[V]),
        {
-           let r_handle = &*self.inner.read().unwrap();
-
-           self.with_handle(move |inner| {
-               for (k, vs) in r_handle.g_map.iter() {
-                   f(k, vs)
-               }
-           });
+           self.with_handle(move |r_handle| {
+            for (k, vs) in &r_handle.g_map {
+                f(k, &vs[..])
+            }
+        });
        }
 
        pub fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool
