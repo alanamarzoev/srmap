@@ -20,7 +20,7 @@ pub mod srmap {
         pub b_map: HashMap<K, Vec<bool>>, // Auxiliary bit map for global map
         pub u_map: HashMap<(String, K), Vec<V>>, // Universe specific map (used only when K,V conflict with g_map)
         pub id_store: HashMap<usize, usize>,
-        largest: i32,
+        largest: usize,
         pub meta: M,
     }
 
@@ -36,7 +36,7 @@ pub mod srmap {
                 b_map: HashMap::new(),
                 u_map: HashMap::new(),
                 id_store: HashMap::new(),
-                largest: -1,
+                largest: 0,
                 meta: init_m
             }
         }
@@ -78,8 +78,7 @@ pub mod srmap {
                 let mut bit_map = Vec::new();
                 let user_index = self.id_store.entry(uid).or_insert(0);
 
-                let largest = self.largest as usize;
-                for x in 0..largest+1 {
+                for x in 0..self.largest+1 {
                     if x != *user_index {
                         bit_map.push(false);
                     } else {
@@ -173,8 +172,7 @@ pub mod srmap {
 
         pub fn add_user(&mut self, uid: usize) {
             self.largest = self.largest + 1;
-            let largest_usize = self.largest as usize;
-            self.id_store.insert(uid.clone(), largest_usize.clone());
+            self.id_store.insert(uid.clone(), self.largest.clone());
             // add bitmap flag for this user in every global bitmap
             for (_, bmap) in self.b_map.iter_mut() {
                 bmap.push(false);
