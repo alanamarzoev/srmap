@@ -42,7 +42,7 @@ pub mod srmap {
         }
 
         pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize){
-            println!("in insert!");
+            println!("in insert! k: {:?}", k.clone());
             // check if record is in the global map
             if self.g_map.contains_key(&k) {
                 match self.g_map.get_mut(&k) {
@@ -129,7 +129,7 @@ pub mod srmap {
         }
 
         pub fn remove(&mut self, k: K, uid: usize) {
-            println!("in remove!");
+            println!("in remove! k: {:?}, uid: {:?}", k.clone(), uid.clone());
             let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
             // let k_str: String = String::from(k.clone()).to_owned();
             // let first_check = format!("{}{}", uid_str, k_str);

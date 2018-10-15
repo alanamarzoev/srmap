@@ -1,6 +1,6 @@
 [package]
 name = "srmap"
-version = "0.1.12"
+version = "0.1.13"
 authors = ["alanamarzoev"]
 
 description = "A lock-free, eventually consistent, concurrent multi-value map."
