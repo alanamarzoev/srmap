@@ -41,22 +41,6 @@ pub mod srmap {
             }
         }
 
-        pub fn g_map_diagnostics(&mut self) -> HashMap<K, Vec<V>> {
-            self.g_map.clone()
-        }
-
-        pub fn b_map_diagnostics(&mut self) -> HashMap<K, Vec<bool>> {
-            self.b_map.clone()
-        }
-
-        pub fn u_map_diagnostics(&mut self) -> HashMap<(String, K), Vec<V>> {
-            self.u_map.clone()
-        }
-
-        pub fn id_store_diagnostics(&mut self) -> HashMap<usize, usize> {
-            self.id_store.clone()
-        }
-
         pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize){
             println!("in insert!");
             // check if record is in the global map
@@ -364,6 +348,26 @@ pub mod srmap {
         V: Eq + Clone,
         M: 'static + Clone,
    {
+       pub fn g_map_diagnostics(&mut self) -> HashMap<K, Vec<V>> {
+           let r_handle = self.inner.read().unwrap();
+           r_handle.g_map.clone()
+       }
+
+       pub fn b_map_diagnostics(&mut self) -> HashMap<K, Vec<bool>> {
+           let r_handle = self.inner.read().unwrap();
+           r_handle.b_map.clone()
+       }
+
+       pub fn u_map_diagnostics(&mut self) -> HashMap<(String, K), Vec<V>> {
+           let r_handle = self.inner.read().unwrap();
+           r_handle.u_map.clone()
+       }
+
+       pub fn id_store_diagnostics(&mut self) -> HashMap<usize, usize> {
+           let r_handle = self.inner.read().unwrap();
+           r_handle.id_store.clone()
+       }
+
        /// Get the current meta value.
        pub fn meta(&self) -> Option<M> {
           self.with_handle(|inner| inner.meta.clone())
