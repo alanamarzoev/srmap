@@ -41,6 +41,22 @@ pub mod srmap {
             }
         }
 
+        pub fn g_map_diagnostics(&mut self) -> HashMap<K, Vec<V>> {
+            self.g_map.clone()
+        }
+
+        pub fn b_map_diagnostics(&mut self) -> HashMap<K, Vec<bool>> {
+            self.b_map.clone()
+        }
+
+        pub fn u_map_diagnostics(&mut self) -> HashMap<(String, K), Vec<V>> {
+            self.u_map.clone()
+        }
+
+        pub fn id_store_diagnostics(&mut self) -> HashMap<usize, usize> {
+            self.id_store.clone()
+        }
+
         pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize){
             println!("in insert!");
             // check if record is in the global map
