@@ -16,7 +16,7 @@ pub mod srmap {
     use serde::ser::{Serialize, Serializer, SerializeStruct};
 
     #[derive(Clone)]
-    #[derive(Deserialize, Debug)]
+    #[derive(Serialize, Deserialize, Debug)]
     pub struct SRMap<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
@@ -49,9 +49,6 @@ pub mod srmap {
         }
 
         pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize){
-            match self.id_store.get(&uid.clone()) {
-
-            }
             // check if record is in the global map
             if self.g_map.contains_key(&k) {
                 match self.g_map.get_mut(&k) {
@@ -220,34 +217,33 @@ pub mod srmap {
         }
     }
 
-    impl<K, V, M> Serialize for SRMap<K, V, M>
-    where
-        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
-        M: serde::Serialize + serde::de::DeserializeOwned,
-    {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            let mut state = serializer.serialize_struct("SRMap", 6)?;
-            state.serialize_field("g_map", &self.g_map)?;
-            state.serialize_field("b_map", &self.b_map)?;
-            state.serialize_field("u_map", &self.u_map)?;
-            state.serialize_field("id_store", &self.id_store)?;
-            state.serialize_field("largest", &self.largest)?;
-            state.serialize_field("meta", &self.meta)?;
-            state.end()
-        }
-    }
+    // impl<K, V, M> Serialize for SRMap<K, V, M>
+    // where
+    //     K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
+    //     V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
+    //     M: serde::Serialize + serde::de::DeserializeOwned,
+    // {
+    //     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    //     where
+    //         S: Serializer,
+    //     {
+    //         let mut state = serializer.serialize_struct("SRMap", 6)?;
+    //         state.serialize_field("g_map", &self.g_map)?;
+    //         state.serialize_field("b_map", &self.b_map)?;
+    //         state.serialize_field("u_map", &self.u_map)?;
+    //         state.serialize_field("id_store", &self.id_store)?;
+    //         state.serialize_field("largest", &self.largest)?;
+    //         state.serialize_field("meta", &self.meta)?;
+    //         state.end()
+    //     }
+    // }
 
-    #[derive(Deserialize)]
-    #[derive(Serialize)]
-    #[derive(Debug)]
-    #[derive(Clone)]
+    use std::fmt::Debug;
+
+    #[derive(Deserialize, Serialize, Debug, Clone)]
     pub struct WriteHandle<K, V, M = ()>
     where
-        K: Eq + Hash + Clone + std::fmt::Debug,
+        K: Eq + Hash + Clone + Debug,
         V: Clone + Eq,
    {
        handle: Arc<RwLock<SRMap<K, V, M>>>,
@@ -345,7 +341,7 @@ pub mod srmap {
    pub struct ReadHandle<K, V, M = ()>
    where
        K: Eq + Hash + Clone + std::fmt::Debug,
-       V: Clone + Eq,
+       V: Clone + Eq
     {
         pub(crate) inner: Arc<RwLock<SRMap<K, V, M>>>,
     }
