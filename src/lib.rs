@@ -1,16 +1,22 @@
 #![feature(trivial_bounds)]
 #![feature(extern_prelude)]
 
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_json;
+extern crate serde;
 
 pub mod srmap {
+    use serde_json;
     use std::collections::HashMap;
     use std::hash::Hash;
     use std::char;
     use std::borrow::Borrow;
     use std::sync::{Arc, RwLock};
+    use serde::ser::{Serialize, Serializer, SerializeStruct};
 
     #[derive(Clone)]
-    #[derive(Debug)]
+    #[derive(Deserialize, Debug)]
     pub struct SRMap<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
@@ -26,8 +32,9 @@ pub mod srmap {
 
     impl<K, V, M> SRMap<K, V, M>
     where
-        K: Eq + Hash + Clone + std::fmt::Debug,
-        V: Clone + Eq,
+        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
+        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
+        M: serde::Serialize + serde::de::DeserializeOwned,
     {
 
         pub fn new(init_m: M) -> SRMap<K, V, M> {
@@ -42,7 +49,9 @@ pub mod srmap {
         }
 
         pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize){
-            println!("in insert! k: {:?}", k.clone());
+            match self.id_store.get(&uid.clone()) {
+
+            }
             // check if record is in the global map
             if self.g_map.contains_key(&k) {
                 match self.g_map.get_mut(&k) {
@@ -211,11 +220,134 @@ pub mod srmap {
         }
     }
 
+    impl<K, V, M> Serialize for SRMap<K, V, M>
+    where
+        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
+        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
+        M: serde::Serialize + serde::de::DeserializeOwned,
+    {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            let mut state = serializer.serialize_struct("SRMap", 6)?;
+            state.serialize_field("g_map", &self.g_map)?;
+            state.serialize_field("b_map", &self.b_map)?;
+            state.serialize_field("u_map", &self.u_map)?;
+            state.serialize_field("id_store", &self.id_store)?;
+            state.serialize_field("largest", &self.largest)?;
+            state.serialize_field("meta", &self.meta)?;
+            state.end()
+        }
+    }
+
+    // use serde::de::{self, Deserialize, Deserializer, Visitor, SeqAccess, MapAccess};
+    //
+    // impl<K, V, M, 'de> Deserialize<K, V, M, 'de> for SRMap<K, V, M> {
+    //     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    //     where
+    //         K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize,
+    //         V: Clone + Eq + serde::Serialize,
+    //         M: serde::Serialize,
+    //     {
+    //         enum Field { Secs, Nanos };
+    //
+    //         // This part could also be generated independently by:
+    //         //
+    //         //    #[derive(Deserialize)]
+    //         //    #[serde(field_identifier, rename_all = "lowercase")]
+    //         //    enum Field { Secs, Nanos }
+    //         impl<'de> Deserialize<'de> for Field {
+    //             fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
+    //             where
+    //                 D: Deserializer<'de>,
+    //             {
+    //                 struct FieldVisitor;
+    //
+    //                 impl<'de> Visitor<'de> for FieldVisitor {
+    //                     type Value = Field;
+    //
+    //                     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    //                         formatter.write_str("`secs` or `nanos`")
+    //                     }
+    //
+    //                     fn visit_str<E>(self, value: &str) -> Result<Field, E>
+    //                     where
+    //                         E: de::Error,
+    //                     {
+    //                         match value {
+    //                             "secs" => Ok(Field::Secs),
+    //                             "nanos" => Ok(Field::Nanos),
+    //                             _ => Err(de::Error::unknown_field(value, FIELDS)),
+    //                         }
+    //                     }
+    //                 }
+    //
+    //                 deserializer.deserialize_identifier(FieldVisitor)
+    //             }
+    //         }
+    //
+    //         struct DurationVisitor;
+    //
+    //         impl<'de> Visitor<'de> for DurationVisitor {
+    //             type Value = Duration;
+    //
+    //             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    //                 formatter.write_str("struct Duration")
+    //             }
+    //
+    //             fn visit_seq<V>(self, mut seq: V) -> Result<Duration, V::Error>
+    //             where
+    //                 V: SeqAccess<'de>,
+    //             {
+    //                 let secs = seq.next_element()?
+    //                     .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+    //                 let nanos = seq.next_element()?
+    //                     .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+    //                 Ok(Duration::new(secs, nanos))
+    //             }
+    //
+    //             fn visit_map<V>(self, mut map: V) -> Result<Duration, V::Error>
+    //             where
+    //                 V: MapAccess<'de>,
+    //             {
+    //                 let mut secs = None;
+    //                 let mut nanos = None;
+    //                 while let Some(key) = map.next_key()? {
+    //                     match key {
+    //                         Field::Secs => {
+    //                             if secs.is_some() {
+    //                                 return Err(de::Error::duplicate_field("secs"));
+    //                             }
+    //                             secs = Some(map.next_value()?);
+    //                         }
+    //                         Field::Nanos => {
+    //                             if nanos.is_some() {
+    //                                 return Err(de::Error::duplicate_field("nanos"));
+    //                             }
+    //                             nanos = Some(map.next_value()?);
+    //                         }
+    //                     }
+    //                 }
+    //                 let secs = secs.ok_or_else(|| de::Error::missing_field("secs"))?;
+    //                 let nanos = nanos.ok_or_else(|| de::Error::missing_field("nanos"))?;
+    //                 Ok(Duration::new(secs, nanos))
+    //             }
+    //         }
+    //
+    //         const FIELDS: &'static [&'static str] = &["secs", "nanos"];
+    //         deserializer.deserialize_struct("Duration", FIELDS, DurationVisitor)
+    //     }
+    // }
+
+    #[derive(Deserialize)]
+    #[derive(Serialize)]
+    #[derive(Debug)]
+    #[derive(Clone)]
     pub struct WriteHandle<K, V, M = ()>
     where
-        K: Eq + Hash + std::fmt::Debug + Clone,
-        V: Eq + Clone,
-        M: 'static + Clone,
+        K: Eq + Hash + Clone + std::fmt::Debug,
+        V: Clone + Eq,
    {
        handle: Arc<RwLock<SRMap<K, V, M>>>,
    }
@@ -224,9 +356,9 @@ pub mod srmap {
        lock: Arc<RwLock<SRMap<K, V, M>>>,
    ) -> WriteHandle<K, V, M>
    where
-       K: Eq + Hash + std::fmt::Debug + Clone,
-       V: Eq + Clone,
-       M: 'static + Clone,
+       K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
+       V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
+       M: serde::Serialize + serde::de::DeserializeOwned,
     {
         WriteHandle {
             handle: lock,
@@ -235,9 +367,9 @@ pub mod srmap {
 
     impl<K, V, M> WriteHandle<K, V, M>
     where
-        K: Eq + Hash + std::fmt::Debug + Clone,
-        V: Eq + Clone,
-        M: 'static + Clone,
+        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
+        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
+        M: Clone + serde::Serialize + serde::de::DeserializeOwned,
    {
        // Add the given value to the value-set of the given key.
        pub fn insert(&mut self, k: K, v: V, uid: usize) {
@@ -308,34 +440,34 @@ pub mod srmap {
    }
 
    /// A handle that may be used to read from the SRMap.
+   #[derive(Serialize, Deserialize, Debug, Clone)]
    pub struct ReadHandle<K, V, M = ()>
    where
-       K: Eq + Hash + std::fmt::Debug + Clone,
-       V: Eq + Clone,
-       M: 'static + Clone,
+       K: Eq + Hash + Clone + std::fmt::Debug,
+       V: Clone + Eq,
     {
         pub(crate) inner: Arc<RwLock<SRMap<K, V, M>>>,
     }
 
 
-    impl<K, V, M> Clone for ReadHandle<K, V, M>
-    where
-        K: Eq + Hash + std::fmt::Debug + Clone,
-        V: Eq + Clone,
-        M: 'static + Clone,
-   {
-       fn clone(&self) -> Self {
-           ReadHandle {
-               inner: self.inner.clone()
-           }
-       }
-   }
+   //  impl<K, V, M> Clone for ReadHandle<K, V, M>
+   //  where
+   //      K: Eq + Hash + std::fmt::Debug + Clone,
+   //      V: Eq + Clone,
+   //      M: 'static + Clone,
+   // {
+   //     fn clone(&self) -> Self {
+   //         ReadHandle {
+   //             inner: self.inner.clone()
+   //         }
+   //     }
+   // }
 
    pub fn new_read<K, V, M>(store: Arc<RwLock<SRMap<K, V, M>>>) -> ReadHandle<K, V, M>
    where
-       K: Eq + Hash + std::fmt::Debug + Clone,
-       V: Eq + Clone,
-       M: 'static + Clone,
+       K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
+       V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
+       M: serde::Serialize + serde::de::DeserializeOwned,
     {
         ReadHandle {
             inner: store,
@@ -344,9 +476,9 @@ pub mod srmap {
 
     impl<K, V, M> ReadHandle<K, V, M>
     where
-        K: Eq + Hash + std::fmt::Debug + Clone,
-        V: Eq + Clone,
-        M: 'static + Clone,
+        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
+        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
+        M: Clone + serde::Serialize + serde::de::DeserializeOwned,
    {
        pub fn g_map_diagnostics(&mut self) -> HashMap<K, Vec<V>> {
            let r_handle = self.inner.read().unwrap();
@@ -444,9 +576,9 @@ pub mod srmap {
 
    pub fn construct<K, V, M>(meta_init: M) -> (ReadHandle<K, V, M>, WriteHandle<K, V, M>)
    where
-       K: Eq + Hash + Clone + std::fmt::Debug,
-       V: Eq + Clone,
-       M: 'static + Clone,
+       K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
+       V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
+       M: Clone + serde::Serialize + serde::de::DeserializeOwned,
     {
         let locked_map = Arc::new(RwLock::new(SRMap::<K,V,M>::new(meta_init)));
         let r_handle = new_read(locked_map);
