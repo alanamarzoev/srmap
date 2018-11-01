@@ -7,20 +7,19 @@ extern crate serde_json;
 extern crate serde;
 
 pub mod srmap {
-    use serde_json;
     use std::collections::HashMap;
     use std::hash::Hash;
     use std::char;
     use std::borrow::Borrow;
     use std::sync::{Arc, RwLock};
-    use serde::ser::{Serialize, Serializer, SerializeStruct};
 
+    // SRMap inner structure
     #[derive(Clone)]
     #[derive(Serialize, Deserialize, Debug)]
     pub struct SRMap<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
-        V: Clone + Eq,
+        V: Clone + Eq + std::fmt::Debug,
     {
         pub g_map: HashMap<K, Vec<V>>, // Global map
         pub b_map: HashMap<K, Vec<bool>>, // Auxiliary bit map for global map
@@ -33,7 +32,7 @@ pub mod srmap {
     impl<K, V, M> SRMap<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
+        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug,
         M: serde::Serialize + serde::de::DeserializeOwned,
     {
 
@@ -48,13 +47,21 @@ pub mod srmap {
             }
         }
 
-        pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize){
+        pub fn statistics(&self) {
+            let gmap = self.g_map.len();
+            let umap = self.u_map.len();
+            println!("SRMAP STATS: # g_map records: {:?}, # u_map records: {:?}, TOTAL #: {:?}", gmap.clone(), umap.clone(), gmap + umap);
+        }
+
+        pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize) {
+            println!("INSERTING key k: {:?}, v: {:?}, uid: {:?}", k.clone(), v.clone(), uid.clone()); 
             // check if record is in the global map
             if self.g_map.contains_key(&k) {
                 match self.g_map.get_mut(&k) {
                     Some(val) => {
                         // if it *is* in the global map, and the values match, update access for this user
                         if *val == v {
+                            println!("updating access to record k={:?} v={:?}", k.clone(), v.clone());
                             // update flag in global bit map for this user
                             match self.b_map.get_mut(&k) {
                                 Some(mut bitmap) => {
@@ -69,22 +76,27 @@ pub mod srmap {
                             }
                         }
                         else {
-                        // if v is different, insert (k,v) into umap as ('uid:k',v)
+                            // if v is different, insert (k,v) into umap as ('uid:k',v)
                             let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
-                            //let k_str: String = String::from(k).to_owned();
                             let key = (uid_str, k.clone());
+                            println!("inserting new record k={:?}, v={:?} (conflict in global map)", k.clone(), v.clone());
+                            println!("umap prior to add: {:?}", self.u_map.clone());
                             self.u_map.insert(key, v.clone());
+                            println!("umap after add: {:?}", self.u_map.clone());
                         }
                     },
                     // add record to global map if it isn't already there
                     None => {}
                 }
             } else {
+                println!("inserting new record k={:?}, v={:?} (first time added to global map)", k.clone(), v.clone());
+                println!("gmap prior to add: {:?}", self.g_map.clone());
                 self.g_map.insert(k.clone(), v.clone());
+                println!("gmap after add: {:?}", self.g_map.clone());
                 let mut bit_map = Vec::new();
                 let user_index = self.id_store.entry(uid).or_insert(0);
 
-                for x in 0..self.largest+1 {
+                for x in 0 .. self.largest + 1 {
                     if x != *user_index {
                         bit_map.push(false);
                     } else {
@@ -93,13 +105,12 @@ pub mod srmap {
                 }
                 self.b_map.insert(k.clone(), bit_map);
             }
+            self.statistics();
         }
 
         pub fn get(&self, k: &K, uid: usize) -> Option<&Vec<V>> {
+            println!("GETTING key {:?} uid {:?}, gmap: {:?}, umap: {:?}", k.clone(), uid.clone(), self.g_map.clone(), self.u_map.clone());
             let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
-            //let uid_str: String =  String::from(uid).to_owned();
-            // let k_str: String = String::from(k.clone()).to_owned();
-            // let first_check = format!("{}{}", uid_str, k_str);
             let key = (uid_str, k.clone());
             match self.u_map.get(&key) {
                Some(val) => {Some(&val)},
@@ -127,6 +138,7 @@ pub mod srmap {
                             }
                         },
                         _ => {
+                            println!("RECORD NOT FOUND!");
                             None
                         }
                      }
@@ -135,12 +147,11 @@ pub mod srmap {
         }
 
         pub fn remove(&mut self, k: K, uid: usize) {
-            println!("in remove! k: {:?}, uid: {:?}", k.clone(), uid.clone());
-            let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
-            // let k_str: String = String::from(k.clone()).to_owned();
-            // let first_check = format!("{}{}", uid_str, k_str);
+            println!("removing k: {:?} for uid: {:?}", k.clone(), uid.clone());
 
+            let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
             let key = (uid_str, k.clone());
+
             let mut remove_entirely = true;
             let mut hit_inner = false;
 
@@ -179,6 +190,7 @@ pub mod srmap {
         pub fn add_user(&mut self, uid: usize) {
             self.largest = self.largest + 1;
             self.id_store.insert(uid.clone(), self.largest.clone());
+
             // add bitmap flag for this user in every global bitmap
             for (_, bmap) in self.b_map.iter_mut() {
                 bmap.push(false);
@@ -187,6 +199,7 @@ pub mod srmap {
 
         pub fn remove_user(&mut self, uid: usize) {
             let mut keys_to_del = Vec::new();
+
             // remove all u_map records for this user and revoke access from all global entries
             match self.id_store.get(&uid) {
                 Some(&id) => {
@@ -217,34 +230,14 @@ pub mod srmap {
         }
     }
 
-    // impl<K, V, M> Serialize for SRMap<K, V, M>
-    // where
-    //     K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-    //     V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
-    //     M: serde::Serialize + serde::de::DeserializeOwned,
-    // {
-    //     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    //     where
-    //         S: Serializer,
-    //     {
-    //         let mut state = serializer.serialize_struct("SRMap", 6)?;
-    //         state.serialize_field("g_map", &self.g_map)?;
-    //         state.serialize_field("b_map", &self.b_map)?;
-    //         state.serialize_field("u_map", &self.u_map)?;
-    //         state.serialize_field("id_store", &self.id_store)?;
-    //         state.serialize_field("largest", &self.largest)?;
-    //         state.serialize_field("meta", &self.meta)?;
-    //         state.end()
-    //     }
-    // }
-
     use std::fmt::Debug;
 
+    // SRMap WriteHandle wrapper structure
     #[derive(Deserialize, Serialize, Debug, Clone)]
     pub struct WriteHandle<K, V, M = ()>
     where
         K: Eq + Hash + Clone + Debug,
-        V: Clone + Eq,
+        V: Clone + Eq + std::fmt::Debug,
    {
        handle: Arc<RwLock<SRMap<K, V, M>>>,
    }
@@ -254,7 +247,7 @@ pub mod srmap {
    ) -> WriteHandle<K, V, M>
    where
        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-       V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
+       V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug,
        M: serde::Serialize + serde::de::DeserializeOwned,
     {
         WriteHandle {
@@ -265,7 +258,7 @@ pub mod srmap {
     impl<K, V, M> WriteHandle<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
+        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug,
         M: Clone + serde::Serialize + serde::de::DeserializeOwned,
    {
        // Add the given value to the value-set of the given key.
@@ -326,7 +319,6 @@ pub mod srmap {
        {
            let r_handle = self.handle.read().unwrap();
            Some((r_handle.get(key, uid).map(move |v| then(&**v)), r_handle.meta.clone()))
-
        }
 
        pub fn is_empty(&self) -> bool {
@@ -336,35 +328,22 @@ pub mod srmap {
 
    }
 
-   /// A handle that may be used to read from the SRMap.
+   // SRMap ReadHandle wrapper structure
    #[derive(Serialize, Deserialize, Debug, Clone)]
    pub struct ReadHandle<K, V, M = ()>
    where
        K: Eq + Hash + Clone + std::fmt::Debug,
-       V: Clone + Eq
+       V: Clone + Eq + std::fmt::Debug
     {
         pub(crate) inner: Arc<RwLock<SRMap<K, V, M>>>,
     }
 
-
-   //  impl<K, V, M> Clone for ReadHandle<K, V, M>
-   //  where
-   //      K: Eq + Hash + std::fmt::Debug + Clone,
-   //      V: Eq + Clone,
-   //      M: 'static + Clone,
-   // {
-   //     fn clone(&self) -> Self {
-   //         ReadHandle {
-   //             inner: self.inner.clone()
-   //         }
-   //     }
-   // }
-
-   pub fn new_read<K, V, M>(store: Arc<RwLock<SRMap<K, V, M>>>) -> ReadHandle<K, V, M>
-   where
-       K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-       V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
-       M: serde::Serialize + serde::de::DeserializeOwned,
+    // ReadHandle constructor
+    pub fn new_read<K, V, M>(store: Arc<RwLock<SRMap<K, V, M>>>) -> ReadHandle<K, V, M>
+    where
+        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
+        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug,
+        M: serde::Serialize + serde::de::DeserializeOwned,
     {
         ReadHandle {
             inner: store,
@@ -374,29 +353,9 @@ pub mod srmap {
     impl<K, V, M> ReadHandle<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
+        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug,
         M: Clone + serde::Serialize + serde::de::DeserializeOwned,
-   {
-       pub fn g_map_diagnostics(&mut self) -> HashMap<K, Vec<V>> {
-           let r_handle = self.inner.read().unwrap();
-           r_handle.g_map.clone()
-       }
-
-       pub fn b_map_diagnostics(&mut self) -> HashMap<K, Vec<bool>> {
-           let r_handle = self.inner.read().unwrap();
-           r_handle.b_map.clone()
-       }
-
-       pub fn u_map_diagnostics(&mut self) -> HashMap<(String, K), Vec<V>> {
-           let r_handle = self.inner.read().unwrap();
-           r_handle.u_map.clone()
-       }
-
-       pub fn id_store_diagnostics(&mut self) -> HashMap<usize, usize> {
-           let r_handle = self.inner.read().unwrap();
-           r_handle.id_store.clone()
-       }
-
+    {
        /// Get the current meta value.
        pub fn meta(&self) -> Option<M> {
           self.with_handle(|inner| inner.meta.clone())
@@ -435,6 +394,7 @@ pub mod srmap {
            K: Hash + Eq,
            F: FnOnce(&[V]) -> T,
        {
+           println!("Wrapper func around inner map: trying to read: key {:?}, uid: {:?}", key.clone(), uid.clone());
            let r_handle = self.inner.read().unwrap();
            Some((r_handle.get(key, uid).map(move |v| then(&**v)), r_handle.meta.clone()))
 
@@ -471,17 +431,17 @@ pub mod srmap {
        }
    }
 
+   // Constructor for read/write handle tuple
    pub fn construct<K, V, M>(meta_init: M) -> (ReadHandle<K, V, M>, WriteHandle<K, V, M>)
    where
        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-       V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned,
+       V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug,
        M: Clone + serde::Serialize + serde::de::DeserializeOwned,
     {
         let locked_map = Arc::new(RwLock::new(SRMap::<K,V,M>::new(meta_init)));
         let r_handle = new_read(locked_map);
         let lock = r_handle.get_lock();
         let w_handle = new_write(lock);
-        //let gmap1 = lock.read().unwrap();
         (r_handle, w_handle)
     }
 }
