@@ -5,6 +5,8 @@ fn it_works() {
     let k = "x".to_string();
     let v = "x".to_string();
     let v2 = "x2".to_string();
+    let v3 = "x3".to_string();
+
     let uid1: usize = 0 as usize;
     let uid2: usize = 1 as usize;
 
@@ -19,6 +21,8 @@ fn it_works() {
     w.insert(k.clone(), v.clone(), uid1.clone());
     let lock = r.get_lock();
     println!("After first insert: {:?}", lock.read().unwrap());
+
+    w.insert(k.clone(), v3.clone(), uid1.clone()); 
 
     w.insert(k.clone(), v.clone(), uid2.clone());
     println!("After second insert: {:?}", lock.read().unwrap());
