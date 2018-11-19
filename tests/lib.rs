@@ -1,12 +1,8 @@
 extern crate srmap;
 
-#[test]
-fn it_works() {
-    let k = "x".to_string();
-    let v = "x".to_string();
-    let v2 = "x2".to_string();
-    let v3 = "x3".to_string();
-
+fn setup() -> (srmap::srmap::ReadHandle<String, String, Option<i32>>,
+               srmap::srmap::WriteHandle<String, String, Option<i32>>)
+{
     let uid1: usize = 0 as usize;
     let uid2: usize = 1 as usize;
 
@@ -17,6 +13,21 @@ fn it_works() {
     // create two users
     w.add_user(uid1);
     w.add_user(uid2);
+
+    (r, w)
+}
+
+#[test]
+fn it_works() {
+    let k = "x".to_string();
+    let v = "x".to_string();
+    let v2 = "x2".to_string();
+    let v3 = "x3".to_string();
+
+    let uid1: usize = 0 as usize;
+    let uid2: usize = 1 as usize;
+
+    let (r, mut w) = setup();
 
     w.insert(k.clone(), v.clone(), uid1.clone());
     let lock = r.get_lock();
