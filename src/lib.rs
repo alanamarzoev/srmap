@@ -538,7 +538,7 @@ pub mod srmap {
     }
 }
 
-<<<<<<< HEAD
+
 
 // pub mod srmap {
 //     use std::collections::HashMap;
@@ -849,7 +849,7 @@ pub mod srmap {
 //         (r_handle, w_handle)
 //     }
 // }
-=======
+
 #[bench]
 fn bench_insert_throughput(b: &mut Bencher) {
     let uid1: usize = 0 as usize;
@@ -889,4 +889,3 @@ fn bench_get_throughput(b: &mut Bencher) {
         r.get_and(&k, |_| false, uid1);
     });
 }
->>>>>>> e81f43e4af58557f8fa68390ac27ee8584de2889
