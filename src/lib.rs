@@ -34,6 +34,7 @@ pub mod srmap {
         V: Clone + Eq + std::fmt::Debug + Hash,
     {
         pub g_map: HashMap<K, Vec<V>>, // Global map
+        g_records: usize,
         pub b_map: HashMap<(K, usize), Vec<bool>>, // Auxiliary bit map for global map
         pub u_map: HashMap<(String, K), Vec<V>>, // Universe specific map (used only when K,V conflict with g_map)
         pub id_store: HashMap<usize, usize>,
@@ -52,6 +53,7 @@ pub mod srmap {
             let logger = super::logger_pls();
             SRMap {
                 g_map: HashMap::new(),
+                g_records: 0,
                 b_map: HashMap::new(),
                 u_map: HashMap::new(),
                 id_store: HashMap::new(),
@@ -73,13 +75,8 @@ pub mod srmap {
         }
 
         pub fn statistics(&self) {
-            let mut total_recs = 0;
-            for (k, v) in &self.g_map {
-                total_recs += v.len();
-            }
-
-            if total_recs % 1000 == 0 {
-                info!(self.log, "SRMap total records across all keys: {:?}", total_recs);
+            if self.g_records % 1000 == 0 {
+                debug!(self.log, "SRMap total records across all keys: {:?}", self.g_records);
             }
         }
 
@@ -101,6 +98,8 @@ pub mod srmap {
                                 if !existing_values.contains_key(&value.clone()) {
                                     // println!("Adding k: {:?} v: {:?} to global map ...", k.clone(), value.clone());
                                     val.push(value.clone());
+                                    self.g_records += 1;
+
                                     let mut bit_map = Vec::new();
                                     let user_index = self.id_store.entry(uid).or_insert(0);
                                     for x in 0 .. self.largest + 1 {
@@ -164,6 +163,7 @@ pub mod srmap {
             } else {
                 let user_index = self.id_store.entry(uid).or_insert(0);
                 self.g_map.insert(k.clone(), v.clone());
+                self.g_records += v.len();
                 let mut ind = 0 as usize;
                 for value in v.iter() {
                     let mut bit_map = Vec::new();
@@ -279,6 +279,7 @@ pub mod srmap {
             if remove_entirely && hit_inner {
                 let size = self.g_map.get(&k).unwrap().len();
                 self.g_map.remove(&k);
+                self.g_records -= size;
                 for i in 0..size {
                     self.b_map.remove(&(k.clone(), i as usize));
                 }
@@ -320,6 +321,7 @@ pub mod srmap {
             }
 
             for k in &keys_to_del {
+                // FIXME(malte): this should adapt self.g_records as needed
                 self.g_map.remove(&k.0);
                 self.b_map.remove(k);
             }
