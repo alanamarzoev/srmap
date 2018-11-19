@@ -1,9 +1,14 @@
 #![feature(trivial_bounds)]
 #![feature(extern_prelude)]
+#![feature(test)]
 
 #[macro_use]
 extern crate slog;
 extern crate slog_term;
+
+extern crate test;
+
+use test::Bencher;
 
 /// Just give me a damn terminal logger
 fn logger_pls() -> slog::Logger {
@@ -322,4 +327,44 @@ pub mod srmap {
         let w_handle = new_write(lock);
         (r_handle, w_handle)
     }
+}
+
+#[bench]
+fn bench_insert_throughput(b: &mut Bencher) {
+    let uid1: usize = 0 as usize;
+    let uid2: usize = 1 as usize;
+
+    let (_r, mut w) = srmap::construct::<String, String, Option<i32>>(None);
+
+    // create two users
+    w.add_user(uid1);
+    w.add_user(uid2);
+
+    let k = "x".to_string();
+    let v = "x".to_string();
+
+    b.iter(|| {
+        w.insert(k.clone(), v.clone(), 0);
+    });
+}
+
+#[bench]
+fn bench_get_throughput(b: &mut Bencher) {
+    let uid1: usize = 0 as usize;
+    let uid2: usize = 1 as usize;
+
+    let (r, mut w) = srmap::construct::<String, String, Option<i32>>(None);
+
+    // create two users
+    w.add_user(uid1);
+    w.add_user(uid2);
+
+    let k = "x".to_string();
+    let v = "x".to_string();
+
+    w.insert(k.clone(), v.clone(), uid1);
+
+    b.iter(|| {
+        r.get_and(&k, |_| false, uid1);
+    });
 }
