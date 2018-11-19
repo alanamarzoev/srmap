@@ -22,7 +22,7 @@ fn it_works() {
     let lock = r.get_lock();
     println!("After first insert: {:?}", lock.read().unwrap());
 
-    w.insert(k.clone(), v3.clone(), uid1.clone()); 
+    w.insert(k.clone(), v3.clone(), uid1.clone());
 
     w.insert(k.clone(), v.clone(), uid2.clone());
     println!("After second insert: {:?}", lock.read().unwrap());
