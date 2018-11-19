@@ -39,7 +39,7 @@ fn it_works() {
     w.remove(k.clone(), uid1.clone());
     println!("After remove: {:?}", lock.read().unwrap());
 
-    let v = r.get_and(&k.clone(), |rs| { false }, uid1.clone());
+    let v = r.get_and(&k, |_| false, uid1.clone());
     println!("V: {:?}", v);
     match v {
         Some(val) => assert_eq!(val, false),
