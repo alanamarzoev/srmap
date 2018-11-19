@@ -876,6 +876,27 @@ fn bench_insert_throughput(b: &mut Bencher) {
 }
 
 #[bench]
+fn bench_insert_multival(b: &mut Bencher) {
+    let uid1: usize = 0 as usize;
+    let uid2: usize = 1 as usize;
+
+    let (_r, mut w) = srmap::construct::<String, String, Option<i32>>(None);
+
+    // create two users
+    w.add_user(uid1);
+    w.add_user(uid2);
+
+    let k = "x".to_string();
+
+    let mut i = 0;
+    b.iter(|| {
+        w.insert(k.clone(), format!("v{}", i), 0);
+        i += 1;
+    });
+}
+
+
+#[bench]
 fn bench_get_throughput(b: &mut Bencher) {
     let uid1: usize = 0 as usize;
     let uid2: usize = 1 as usize;
