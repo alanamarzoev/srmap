@@ -85,34 +85,23 @@ pub mod srmap {
             if self.g_map.contains_key(&k) {
                 match self.g_map.get_mut(&k) {
                     Some(val) => {
-                        let mut existing_values = HashMap::new();
-                        let mut ind = 0 as usize;
-                        for v_ in val.iter() {
-                            existing_values.insert(v_.clone(), ind.clone());
-                            ind = ind + 1;
-                        }
-
                         // Append record to key's vec if uid = 0 (global)
-                        if uid.clone() == 0 as usize {
+                        if uid == 0 as usize {
                             for value in v.iter() {
-                                if !existing_values.contains_key(&value.clone()) {
-                                    // println!("Adding k: {:?} v: {:?} to global map ...", k.clone(), value.clone());
-                                    val.push(value.clone());
-                                    self.g_records += 1;
+                                //println!("Adding k: {:?} v: {:?} to global map ...", k.clone(), value.clone());
+                                val.push(value.clone());
+                                self.g_records += 1;
 
-                                    let mut bit_map = Vec::new();
-                                    let user_index = self.id_store.entry(uid).or_insert(0);
-                                    for x in 0 .. self.largest + 1 {
-                                        if x != *user_index {
-                                            bit_map.push(false);
-                                        } else {
-                                            bit_map.push(true);
-                                        }
+                                let mut bit_map = Vec::new();
+                                let user_index = self.id_store.entry(uid).or_insert(0);
+                                for x in 0 .. self.largest + 1 {
+                                    if x != *user_index {
+                                        bit_map.push(false);
+                                    } else {
+                                        bit_map.push(true);
                                     }
-                                    self.b_map.insert((k.clone(), 0 as usize), bit_map);
-                                } else {
-                                    // println!("SRMap: Record already exists for this key.");
                                 }
+                                self.b_map.insert((k.clone(), 0 as usize), bit_map);
                             }
                         }
 
@@ -120,40 +109,42 @@ pub mod srmap {
                         // in the global map.
                         for value in v.iter() {
                             // If it is, update its bitmap.
-                            if existing_values.contains_key(&value) {
-                                let b_map_ind = existing_values.get(&value).unwrap();
-                                let b_map_key = (k.clone(), *b_map_ind);
-                                match self.b_map.get_mut(&b_map_key) {
-                                    Some(mut bitmap) => {
-                                        match self.id_store.get(&uid) {
-                                            Some(&id) => {
-                                                bitmap[id] = true;
-                                            },
-                                            None => {}
-                                        }
-                                    },
-                                    None => {}
-                                };
-                            // If it's not, add it to vec in the user_specific map.
-                            } else {
-                                // Set up u_map key
-                                let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
-                                let key = (uid_str, k.clone());
+                            match val.iter().position(|v| v == value) {
+                                Some(index) => {
+                                    let b_map_key = (k.clone(), index);
+                                    match self.b_map.get_mut(&b_map_key) {
+                                        Some(mut bitmap) => {
+                                            match self.id_store.get(&uid) {
+                                                Some(&id) => {
+                                                    bitmap[id] = true;
+                                                },
+                                                None => {}
+                                            }
+                                        },
+                                        None => {}
+                                    };
+                                },
+                                None => {
+                                    // If it's not, add it to vec in the user_specific map.
+                                    // Set up u_map key
+                                    let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
+                                    let key = (uid_str, k.clone());
 
-                                // Add to an existing vec or create a new one
-                                let mut insert = false;
-                                match self.u_map.get_mut(&key) {
-                                    Some(values) => {
-                                        for value in v.iter() {
-                                            values.push(value.clone());
+                                    // Add to an existing vec or create a new one
+                                    let mut insert = false;
+                                    match self.u_map.get_mut(&key) {
+                                        Some(values) => {
+                                            for value in v.iter() {
+                                                values.push(value.clone());
+                                            }
+                                        },
+                                        None => {
+                                            insert = true;
                                         }
-                                    },
-                                    None => {
-                                        insert = true;
+                                    };
+                                    if insert {
+                                        self.u_map.insert(key.clone(), v.clone());
                                     }
-                                };
-                                if insert {
-                                    self.u_map.insert(key.clone(), v.clone());
                                 }
                             }
                         }
