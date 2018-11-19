@@ -52,6 +52,10 @@ pub mod srmap {
             let logger = super::logger_pls();
             SRMap {
                 g_map: HashMap::new(),
+                b_map: HashMap::new(),
+                u_map: HashMap::new(),
+                id_store: HashMap::new(),
+                largest: 0 as usize, 
                 meta: init_m,
                 log: logger,
             }
