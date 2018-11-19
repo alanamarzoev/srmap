@@ -30,10 +30,10 @@ fn it_works() {
     w.insert(k.clone(), v2.clone(), uid2.clone());
     println!("After overlapping insert: {:?}", lock.read().unwrap());
 
-    let v = r.get_and(&k.clone(), |rs| { rs.iter().any(|r| *r == "x".to_string()) }, uid1.clone()).unwrap();
+    let v = r.get_and(&k, |rs| { rs.iter().any(|r| *r == "x".to_string()) }, uid1.clone()).unwrap();
     assert_eq!(v, true);
 
-    let v = r.get_and(&k.clone(), |rs| { rs.iter().any(|r| *r == "x2".to_string()) }, uid2.clone()).unwrap();
+    let v = r.get_and(&k, |rs| { rs.iter().any(|r| *r == "x2".to_string()) }, uid2.clone()).unwrap();
     assert_eq!(v, true);
 
     w.remove(k.clone(), uid1.clone());
