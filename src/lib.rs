@@ -2,9 +2,17 @@
 #![feature(extern_prelude)]
 
 #[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-extern crate serde;
+extern crate slog;
+extern crate slog_term;
+
+/// Just give me a damn terminal logger
+fn logger_pls() -> slog::Logger {
+    use slog::Drain;
+    use slog::Logger;
+    use slog_term::term_full;
+    use std::sync::Mutex;
+    Logger::root(Mutex::new(term_full()).fuse(), o!())
+}
 
 pub mod srmap {
     use std::collections::HashMap;
@@ -23,6 +31,7 @@ pub mod srmap {
     {
         pub g_map: HashMap<K, Vec<V>>, // Global map
         pub meta: M,
+        log: slog::Logger,
     }
 
     impl<K, V, M> SRMap<K, V, M>
@@ -32,9 +41,11 @@ pub mod srmap {
     {
 
         pub fn new(init_m: M) -> SRMap<K, V, M> {
+            let logger = super::logger_pls();
             SRMap {
                 g_map: HashMap::new(),
-                meta: init_m
+                meta: init_m,
+                log: logger,
             }
         }
 
@@ -42,11 +53,11 @@ pub mod srmap {
             let gmap = self.g_map.len();
 
             match self.g_map.get(&k) {
-                Some(v) => println!("key: {:?}, len val: {:?}", k.clone(), v.len()),
+                Some(v) => trace!(self.log, "key: {:?}, len val: {:?}", k.clone(), v.len()),
                 None => ()
             }
 
-            println!("total # of g_map records: {:?}", gmap);
+            info!(self.log, "SRMap total # of g_map records: {:?}", gmap);
         }
 
         pub fn statistics(&self) {
@@ -55,7 +66,7 @@ pub mod srmap {
                 total_recs += v.len();
             }
             if total_recs % 1000 == 0 {
-                println!("Total records across all keys: {:?}", total_recs);
+                info!(self.log, "SRMap total records across all keys: {:?}", total_recs);
             }
         }
 
@@ -78,7 +89,8 @@ pub mod srmap {
         }
 
         pub fn get(&self, k: &K, uid: usize) -> Option<Vec<V>> {
-            // println!("SRMap: getting key {:?}, uid {:?}, gmap: {:?}, umap: {:?}", k.clone(), uid.clone(), self.g_map.clone(), self.u_map.clone());
+            //trace!(self.log, "SRMap: getting key {:?}, uid {:?}, gmap: {:?}, umap: {:?}", k.clone(), uid.clone(), self.g_map.clone(), self.u_map.clone());
+            trace!(self.log, "SRMap: getting key {:?}, uid {:?}, gmap: {:?}", k.clone(), uid.clone(), self.g_map.clone());
             match self.g_map.get(&k) {
                 Some(val) => Some(val.clone()),
                 None => None
@@ -260,7 +272,7 @@ pub mod srmap {
            K: Hash + Eq,
            F: FnOnce(&[V]) -> T,
        {
-           // println!("Wrapper func around inner map: trying to read: key {:?}, uid: {:?}", key.clone(), uid.clone());
+           // trace!(self.log, "Wrapper func around inner map: trying to read: key {:?}, uid: {:?}", key.clone(), uid.clone());
            let r_handle = self.inner.read().unwrap();
            Some((r_handle.get(key, uid).map(move |v| then(&*v)), r_handle.meta.clone()))
 
