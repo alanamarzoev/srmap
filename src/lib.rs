@@ -1,10 +1,23 @@
 #![feature(trivial_bounds)]
 #![feature(extern_prelude)]
+#![feature(test)]
 
 #[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-extern crate serde;
+extern crate slog;
+extern crate slog_term;
+
+extern crate test;
+
+use test::Bencher;
+
+/// Just give me a damn terminal logger
+fn logger_pls() -> slog::Logger {
+    use slog::Drain;
+    use slog::Logger;
+    use slog_term::term_full;
+    use std::sync::Mutex;
+    Logger::root(Mutex::new(term_full()).fuse(), o!())
+}
 
 pub mod srmap {
     use std::collections::HashMap;
@@ -14,8 +27,7 @@ pub mod srmap {
     use std::sync::{Arc, RwLock};
 
     // SRMap inner structure
-    #[derive(Clone)]
-    #[derive(Serialize, Deserialize, Debug)]
+    #[derive(Clone, Debug)]
     pub struct SRMap<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
@@ -27,23 +39,21 @@ pub mod srmap {
         pub id_store: HashMap<usize, usize>,
         largest: usize,
         pub meta: M,
+        log: slog::Logger,
     }
 
     impl<K, V, M> SRMap<K, V, M>
     where
-        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + Hash,
-        M: serde::Serialize + serde::de::DeserializeOwned,
+        K: Eq + Hash + Clone + std::fmt::Debug,
+        V: Clone + Eq + Hash + std::fmt::Debug,
     {
 
         pub fn new(init_m: M) -> SRMap<K, V, M> {
+            let logger = super::logger_pls();
             SRMap {
                 g_map: HashMap::new(),
-                b_map: HashMap::new(),
-                u_map: HashMap::new(),
-                id_store: HashMap::new(),
-                largest: 0,
-                meta: init_m
+                meta: init_m,
+                log: logger,
             }
         }
 
@@ -51,11 +61,11 @@ pub mod srmap {
             let gmap = self.g_map.len();
 
             match self.g_map.get(&k) {
-                Some(v) => println!("key: {:?}, len val: {:?}", k.clone(), v.len()),
+                Some(v) => trace!(self.log, "key: {:?}, len val: {:?}", k.clone(), v.len()),
                 None => ()
             }
 
-            println!("total # of g_map records: {:?}", gmap);
+            info!(self.log, "SRMap total # of g_map records: {:?}", gmap);
         }
 
         pub fn statistics(&self) {
@@ -63,7 +73,10 @@ pub mod srmap {
             for (k, v) in &self.g_map {
                 total_recs += v.len();
             }
-            println!("Total records across all keys: {:?}", total_recs);
+
+            if total_recs % 1000 == 0 {
+                info!(self.log, "SRMap total records across all keys: {:?}", total_recs);
+            }
         }
 
         pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize) {
@@ -314,7 +327,7 @@ pub mod srmap {
     use std::fmt::Debug;
 
     // SRMap WriteHandle wrapper structure
-    #[derive(Deserialize, Serialize, Debug, Clone)]
+    #[derive(Debug, Clone)]
     pub struct WriteHandle<K, V, M = ()>
     where
         K: Eq + Hash + Clone + Debug,
@@ -327,9 +340,8 @@ pub mod srmap {
        lock: Arc<RwLock<SRMap<K, V, M>>>,
    ) -> WriteHandle<K, V, M>
    where
-       K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-       V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + Hash,
-       M: serde::Serialize + serde::de::DeserializeOwned,
+       K: Eq + Hash + Clone + std::fmt::Debug,
+       V: Clone + Eq + std::fmt::Debug + Hash,
     {
         WriteHandle {
             handle: lock,
@@ -338,9 +350,9 @@ pub mod srmap {
 
     impl<K, V, M> WriteHandle<K, V, M>
     where
-        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + Hash,
-        M: Clone + serde::Serialize + serde::de::DeserializeOwned,
+        K: Eq + Hash + Clone + std::fmt::Debug,
+        V: Clone + Eq + std::fmt::Debug + Hash,
+        M: Clone,
    {
        // Add the given value to the value-set of the given key.
        pub fn insert(&mut self, k: K, v: V, uid: usize) {
@@ -410,7 +422,7 @@ pub mod srmap {
    }
 
    // SRMap ReadHandle wrapper structure
-   #[derive(Serialize, Deserialize, Debug, Clone)]
+   #[derive(Debug, Clone)]
    pub struct ReadHandle<K, V, M = ()>
    where
        K: Eq + Hash + Clone + std::fmt::Debug,
@@ -422,9 +434,8 @@ pub mod srmap {
     // ReadHandle constructor
     pub fn new_read<K, V, M>(store: Arc<RwLock<SRMap<K, V, M>>>) -> ReadHandle<K, V, M>
     where
-        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + Hash,
-        M: serde::Serialize + serde::de::DeserializeOwned,
+        K: Eq + Hash + Clone + std::fmt::Debug,
+        V: Clone + Eq + std::fmt::Debug + Hash,
     {
         ReadHandle {
             inner: store,
@@ -433,9 +444,9 @@ pub mod srmap {
 
     impl<K, V, M> ReadHandle<K, V, M>
     where
-        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + Hash,
-        M: Clone + serde::Serialize + serde::de::DeserializeOwned,
+        K: Eq + Hash + Clone + std::fmt::Debug,
+        V: Clone + Eq + std::fmt::Debug + Hash,
+        M: Clone,
     {
        /// Get the current meta value.
        pub fn meta(&self) -> Option<M> {
@@ -475,6 +486,7 @@ pub mod srmap {
            K: Hash + Eq,
            F: FnOnce(&[V]) -> T,
        {
+           // trace!(self.log, "Wrapper func around inner map: trying to read: key {:?}, uid: {:?}", key.clone(), uid.clone());
            let r_handle = self.inner.read().unwrap();
            Some((r_handle.get(key, uid).map(move |v| then(&*v)), r_handle.meta.clone()))
 
@@ -514,9 +526,9 @@ pub mod srmap {
    // Constructor for read/write handle tuple
    pub fn construct<K, V, M>(meta_init: M) -> (ReadHandle<K, V, M>, WriteHandle<K, V, M>)
    where
-       K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-       V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + Hash,
-       M: Clone + serde::Serialize + serde::de::DeserializeOwned,
+       K: Eq + Hash + Clone + std::fmt::Debug,
+       V: Clone + Eq + std::fmt::Debug + Hash,
+       M: Clone,
     {
         let locked_map = Arc::new(RwLock::new(SRMap::<K,V,M>::new(meta_init)));
         let r_handle = new_read(locked_map);
@@ -526,6 +538,7 @@ pub mod srmap {
     }
 }
 
+<<<<<<< HEAD
 
 // pub mod srmap {
 //     use std::collections::HashMap;
@@ -836,3 +849,44 @@ pub mod srmap {
 //         (r_handle, w_handle)
 //     }
 // }
+=======
+#[bench]
+fn bench_insert_throughput(b: &mut Bencher) {
+    let uid1: usize = 0 as usize;
+    let uid2: usize = 1 as usize;
+
+    let (_r, mut w) = srmap::construct::<String, String, Option<i32>>(None);
+
+    // create two users
+    w.add_user(uid1);
+    w.add_user(uid2);
+
+    let k = "x".to_string();
+    let v = "x".to_string();
+
+    b.iter(|| {
+        w.insert(k.clone(), v.clone(), 0);
+    });
+}
+
+#[bench]
+fn bench_get_throughput(b: &mut Bencher) {
+    let uid1: usize = 0 as usize;
+    let uid2: usize = 1 as usize;
+
+    let (r, mut w) = srmap::construct::<String, String, Option<i32>>(None);
+
+    // create two users
+    w.add_user(uid1);
+    w.add_user(uid2);
+
+    let k = "x".to_string();
+    let v = "x".to_string();
+
+    w.insert(k.clone(), v.clone(), uid1);
+
+    b.iter(|| {
+        r.get_and(&k, |_| false, uid1);
+    });
+}
+>>>>>>> e81f43e4af58557f8fa68390ac27ee8584de2889

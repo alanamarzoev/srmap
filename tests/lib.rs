@@ -1,12 +1,8 @@
 extern crate srmap;
 
-#[test]
-fn it_works() {
-    let k = "x".to_string();
-    let v = "x".to_string();
-    let v2 = "x2".to_string();
-    let v3 = "x3".to_string();
-
+fn setup() -> (srmap::srmap::ReadHandle<String, String, Option<i32>>,
+               srmap::srmap::WriteHandle<String, String, Option<i32>>)
+{
     let uid1: usize = 0 as usize;
     let uid2: usize = 1 as usize;
 
@@ -18,11 +14,26 @@ fn it_works() {
     w.add_user(uid1);
     w.add_user(uid2);
 
+    (r, w)
+}
+
+#[test]
+fn it_works() {
+    let k = "x".to_string();
+    let v = "x".to_string();
+    let v2 = "x2".to_string();
+    let v3 = "x3".to_string();
+
+    let uid1: usize = 0 as usize;
+    let uid2: usize = 1 as usize;
+
+    let (r, mut w) = setup();
+
     w.insert(k.clone(), v.clone(), uid1.clone());
     let lock = r.get_lock();
     println!("After first insert: {:?}", lock.read().unwrap());
 
-    w.insert(k.clone(), v3.clone(), uid1.clone()); 
+    w.insert(k.clone(), v3.clone(), uid1.clone());
 
     w.insert(k.clone(), v.clone(), uid2.clone());
     println!("After second insert: {:?}", lock.read().unwrap());
@@ -30,16 +41,16 @@ fn it_works() {
     w.insert(k.clone(), v2.clone(), uid2.clone());
     println!("After overlapping insert: {:?}", lock.read().unwrap());
 
-    let v = r.get_and(&k.clone(), |rs| { rs.iter().any(|r| *r == "x".to_string()) }, uid1.clone()).unwrap();
+    let v = r.get_and(&k, |rs| { rs.iter().any(|r| *r == "x".to_string()) }, uid1.clone()).unwrap();
     assert_eq!(v, true);
 
-    let v = r.get_and(&k.clone(), |rs| { rs.iter().any(|r| *r == "x2".to_string()) }, uid2.clone()).unwrap();
+    let v = r.get_and(&k, |rs| { rs.iter().any(|r| *r == "x2".to_string()) }, uid2.clone()).unwrap();
     assert_eq!(v, true);
 
     w.remove(k.clone(), uid1.clone());
     println!("After remove: {:?}", lock.read().unwrap());
 
-    let v = r.get_and(&k.clone(), |rs| { false }, uid1.clone());
+    let v = r.get_and(&k, |_| false, uid1.clone());
     println!("V: {:?}", v);
     match v {
         Some(val) => assert_eq!(val, false),
