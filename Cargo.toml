@@ -8,5 +8,7 @@ license = "MIT/Apache-2.0"
 
 [dependencies]
 heapsize = "0.4.2"
+# uncomment to turn on all logging
+# slog = { version = "2.2.2", features = ["max_level_trace", "release_max_level_trace"] }
 slog = "2.2.2"
 slog-term = "2.4.0"
