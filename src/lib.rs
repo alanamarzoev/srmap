@@ -57,7 +57,7 @@ pub mod srmap {
                 b_map: HashMap::new(),
                 u_map: HashMap::new(),
                 id_store: HashMap::new(),
-                largest: 0 as usize, 
+                largest: 0 as usize,
                 meta: init_m,
                 log: logger,
             }
