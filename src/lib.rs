@@ -5,7 +5,7 @@
 #[macro_use]
 extern crate slog;
 extern crate slog_term;
-
+extern crate evmap;
 extern crate test;
 
 use test::Bencher;
@@ -19,27 +19,32 @@ fn logger_pls() -> slog::Logger {
     Logger::root(Mutex::new(term_full()).fuse(), o!())
 }
 
+
 pub mod srmap {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::hash::Hash;
     use std::char;
     use std::borrow::Borrow;
     use std::sync::{Arc, RwLock};
+    use evmap;
+    use std::iter::FromIterator;
+    use std::rc::Rc;
 
     // SRMap inner structure
-    #[derive(Clone, Debug)]
     pub struct SRMap<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
         V: Clone + Eq + std::fmt::Debug + Hash,
     {
-        pub g_map: HashMap<K, Vec<V>>, // Global map
-        g_records: usize,
-        pub b_map: HashMap<(K, usize), Vec<bool>>, // Auxiliary bit map for global map
-        pub u_map: HashMap<(String, K), Vec<V>>, // Universe specific map (used only when K,V conflict with g_map)
+        pub g_map_r: evmap::ReadHandle<K, HashSet<V>>,
+        pub g_map_w: evmap::WriteHandle<K, HashSet<V>>,
+        pub b_map_r: evmap::ReadHandle<(K, V), Vec<usize>>,
+        pub b_map_w: evmap::WriteHandle<(K, V), Vec<usize>>,
+        pub u_map: Vec<RwLock<HashMap<K, HashSet<V>>>>,
         pub id_store: HashMap<usize, usize>,
-        largest: usize,
         pub meta: M,
+        largest: usize,
+        g_records: usize,
         log: slog::Logger,
     }
 
@@ -51,290 +56,286 @@ pub mod srmap {
 
         pub fn new(init_m: M) -> SRMap<K, V, M> {
             let logger = super::logger_pls();
+            let (g_map_r, mut g_map_w) = evmap::new();
+            let (b_map_r, mut b_map_w) = evmap::new();
             SRMap {
-                g_map: HashMap::new(),
-                g_records: 0,
-                b_map: HashMap::new(),
-                u_map: HashMap::new(),
+                g_map_r: g_map_r,
+                g_map_w: g_map_w,
+                b_map_r: b_map_r,
+                b_map_w: b_map_w,
+                u_map: Vec::new(),
                 id_store: HashMap::new(),
-                largest: 0 as usize,
                 meta: init_m,
+                g_records: 0,
+                largest: 0 as usize,
                 log: logger,
             }
         }
 
-        pub fn key_statistics(&self, k: K) {
-            let gmap = self.g_map.len();
-
-            match self.g_map.get(&k) {
-                Some(v) => trace!(self.log, "key: {:?}, len val: {:?}", k.clone(), v.len()),
-                None => ()
-            }
-
-            info!(self.log, "SRMap total # of g_map records: {:?}", gmap);
+        pub fn g_map_size(&self) -> usize {
+            let mut gm_vec = Vec::new();
+            self.g_map_r.for_each(|x, s| gm_vec.push(1));
+            gm_vec.len()
         }
 
-        pub fn statistics(&self) {
-            if self.g_records % 1000 == 0 {
-                debug!(self.log, "SRMap total records across all keys: {:?}", self.g_records);
+        pub fn get_id(&self, uid: usize) -> usize {
+            match self.id_store.get(&uid) {
+                Some(&id) => id.clone(),
+                None => panic!("not a valid uid...")
             }
         }
 
+        // Only the global universe writes to the global map.
+        // Writes to user universes will first check to see if the record exists in
+        // the global universe. If it does, a bit will be flipped to indicate access.
+        // If it doesn't exist in the global universe, the record is added to the user
+        // universe.
         pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize) {
-            // check if record is in the global map
-            if self.g_map.contains_key(&k) {
-                match self.g_map.get_mut(&k) {
-                    Some(val) => {
-                        // Append record to key's vec if uid = 0 (global)
-                        if uid == 0 as usize {
-                            for value in v.iter() {
-                                //println!("Adding k: {:?} v: {:?} to global map ...", k.clone(), value.clone());
-                                val.push(value.clone());
-                                self.g_records += 1;
+            // If uid is 0, insert records into global universe
+            let mut value_set = self.g_map_r.get_and(&k, |s| s[0].clone());
+            // value_set.what;
+            // let mut value_set = Some(HashSet::new());
+            let uid = self.get_id(uid);
+            if (uid == (0 as usize)) {
+                // Add record to existing set of values if it exists, otherwise create a new set
+                match value_set {
+                    Some(mut set) => {
+                        let mut g_map_w = &mut self.g_map_w;
+                        for val in &v {
+                            if !set.contains(val) {
+                                // Add (index, value) to global map
+                                set.insert(val.clone()); //TODO do a set merge instead of this
+                                g_map_w.update(k.clone(), set.clone());
+                                g_map_w.refresh();
 
+                                // Create new bitmap for this value
                                 let mut bit_map = Vec::new();
-                                let user_index = self.id_store.entry(uid).or_insert(0);
                                 for x in 0 .. self.largest + 1 {
-                                    if x != *user_index {
-                                        bit_map.push(false);
+                                    if x == 0 {
+                                        bit_map.push(1 as usize);
                                     } else {
-                                        bit_map.push(true);
+                                        bit_map.push(0 as usize);
                                     }
                                 }
-                                self.b_map.insert((k.clone(), 0 as usize), bit_map);
+                                self.b_map_w.insert((k.clone(), val.clone()), bit_map);
+                                self.b_map_w.refresh();
                             }
                         }
-
-                        // For each new record inserted, check to see if the record is
-                        // in the global map.
-                        for value in v.iter() {
-                            // If it is, update its bitmap.
-                            match val.iter().position(|v| v == value) {
-                                Some(index) => {
-                                    let b_map_key = (k.clone(), index);
-                                    match self.b_map.get_mut(&b_map_key) {
-                                        Some(mut bitmap) => {
-                                            match self.id_store.get(&uid) {
-                                                Some(&id) => {
-                                                    bitmap[id] = true;
-                                                },
-                                                None => {}
-                                            }
-                                        },
-                                        None => {}
-                                    };
+                    },
+                    None => {
+                        let mut vset : HashSet<V> = HashSet::from_iter(v.clone());
+                        self.g_map_w.insert(k.clone(), vset);
+                        self.g_map_w.refresh();
+                        for val in &v {
+                            let mut bit_map = Vec::new();
+                            for x in 0 .. self.largest + 1 {
+                                if x == 0 {
+                                    bit_map.push(1 as usize);
+                                } else {
+                                    bit_map.push(0 as usize);
+                                }
+                            }
+                            self.b_map_w.insert((k.clone(), val.clone()), bit_map);
+                        }
+                        self.b_map_w.refresh();
+                    }
+                }
+            } else {
+                // User insert. First check to see if the value exists in the global map.
+                // If it does, update the bitmap. If it doesn't, add to the user's map.
+                let mut u_map_insert = false;
+                match value_set {
+                    Some(set) => {
+                        for val in &v {
+                            match set.get(val) {
+                                Some(value) => {
+                                    let bm_key = (k.clone(), value.clone());
+                                    let mut bm = self.b_map_r.get_and(&bm_key, |s| s[0].clone()).unwrap();
+                                    bm[uid] = 1 as usize;
+                                    self.b_map_w.update(bm_key, bm);
+                                    self.b_map_w.refresh();
                                 },
                                 None => {
-                                    // If it's not, add it to vec in the user_specific map.
-                                    // Set up u_map key
-                                    let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
-                                    let key = (uid_str, k.clone());
-
-                                    // Add to an existing vec or create a new one
-                                    let mut insert = false;
-                                    match self.u_map.get_mut(&key) {
-                                        Some(values) => {
-                                            for value in v.iter() {
-                                                values.push(value.clone());
-                                            }
-                                        },
-                                        None => {
-                                            insert = true;
-                                        }
-                                    };
-                                    if insert {
-                                        self.u_map.insert(key.clone(), v.clone());
-                                    }
+                                    u_map_insert = true;
                                 }
                             }
                         }
                     },
-                    None => {}
-                }
-            } else {
-                let user_index = self.id_store.entry(uid).or_insert(0);
-                self.g_map.insert(k.clone(), v.clone());
-                self.g_records += v.len();
-                let mut ind = 0 as usize;
-                for value in v.iter() {
-                    let mut bit_map = Vec::new();
-                    for x in 0 .. self.largest + 1 {
-                        if x != *user_index {
-                            bit_map.push(false);
-                        } else {
-                            bit_map.push(true);
+                    None => {
+                        u_map_insert = true;
+                    }
+                };
+
+                // Insert into user map.
+                if u_map_insert {
+                    let mut v_set : HashSet<V> = v.iter().cloned().collect();
+                    let mut u_map = self.u_map[uid].write().unwrap();
+                    {
+                        let mut u_map = self.u_map[uid].write().unwrap();
+                        let mut res_set = u_map.get(&k);
+                        if res_set != None {
+                            let mut res_set = res_set.unwrap();
+                            v_set = v_set.union(res_set).cloned().collect();
                         }
                     }
-                    self.b_map.insert((k.clone(), ind.clone()), bit_map);
-                    ind = ind + 1;
+                    u_map.insert(k.clone(), v_set);
+
                 }
             }
-            self.statistics();
         }
 
-        pub fn get(&self, k: &K, uid: usize) -> Option<Vec<V>> {
-            let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
-            let key = (uid_str, k.clone());
+
+        pub fn get(&self, k: &K, uid: usize) -> Option<Vec<V>> { //TODO optimize this!! will prob be slow
+            let uid = self.get_id(uid);
+            let mut u_map = self.u_map[uid].write().unwrap();
+
+            let mut v_set = u_map.get_mut(k);
+            let mut res_set : HashSet<V>;
+            if v_set != None {
+                res_set = v_set.unwrap().clone();
+            } else {
+                res_set = HashSet::new();
+            }
+
+            let value_set = self.g_map_r.get_and(&k, |s| s[0].clone());
+            match value_set {
+                Some(set) => {
+                    for v in set {
+                        let access = self.b_map_r.get_and(&(k.clone(), v.clone()), |s| s[0].clone()).unwrap()[uid];
+                        if access == 1 as usize {
+                            res_set.insert(v);
+                        }
+                    }
+                },
+                None => {}
+            };
 
             let mut to_return = Vec::new();
-
-            let mut internal_id = 0 as usize;
-            match self.id_store.get(&uid) {
-                Some(&id) => {
-                    internal_id = id;
-                },
-                None => {}
+            for x in res_set.iter() {
+                to_return.push(x.clone());
             }
-
-            match self.u_map.get(&key) {
-                Some(val) => {
-                    for v in val.iter(){
-                        to_return.push(v.clone());
-                    }
-                },
-                None => {
-
-                }
-            }
-
-            match self.g_map.get(&k) {
-                Some(val) => {
-                    let mut ind = 0;
-                    for v in val.iter() {
-                        let b_map_key = (k.clone(), ind.clone());
-                        ind = ind + 1;
-                        match self.b_map.get(&b_map_key) {
-                            Some(bitmap) => {
-                                if bitmap[internal_id] {
-                                    to_return.push(v.clone());
-                                }
-                            },
-                            None => {}
-                        }
-                    }
-                },
-                None => {}
-            }
-
-            let cloned = to_return.clone();
-
-            if to_return.len() == 0 {
-                return None
+            if to_return.len() > 0 {
+                return Some(to_return)
             } else {
-                return Some(cloned)
+                return None
             }
         }
 
-        pub fn remove(&mut self, k: K, uid: usize) {
-            let mut internal_id = 0 as usize;
+        pub fn remove(&mut self, k: &K, uid: usize) {
+            let uid = self.get_id(uid);
+            let mut u_map = self.u_map[uid].write().unwrap();
+            u_map.remove(k);
 
-            match self.id_store.get(&uid) {
-                Some(&id) => {
-                    internal_id = id;
-                },
-                None => {}
-            }
-
-            let uid_str = char::from_digit(uid as u32, 10).unwrap().to_string();
-            let key = (uid_str, k.clone());
-
-            let mut remove_entirely = true;
-            let mut hit_inner = false;
-
-            if self.u_map.contains_key(&key) {
-                self.u_map.remove(&key);
-            }
-
-            match self.g_map.get(&k) {
-                Some(values) => {
-                    for i in 0..values.len() {
-                        let b_map_key = (k.clone(), i as usize);
-                        match self.b_map.get_mut(&b_map_key) {
-                            Some(bitmap) => {
-                                bitmap[internal_id] = false;
-                                hit_inner = true;
-
-                                for pt in bitmap {
-                                    if *pt {
-                                        remove_entirely = false;
-                                    }
-                                }
+            let value_set = self.g_map_r.get_and(&k, |s| s[0].clone());
+            match value_set {
+                Some(set) => {
+                    for v in set.iter() {
+                        let bm_key = &(k.clone(), v.clone());
+                        let mut bmap = self.b_map_r.get_and(bm_key, |s| s[0].clone());
+                        match bmap {
+                            Some(mut bm) => {
+                                bm[uid] = 0 as usize;
                             },
                             None => {}
                         }
                     }
                 },
                 None => {}
-            }
-
-            if remove_entirely && hit_inner {
-                let size = self.g_map.get(&k).unwrap().len();
-                self.g_map.remove(&k);
-                self.g_records -= size;
-                for i in 0..size {
-                    self.b_map.remove(&(k.clone(), i as usize));
-                }
             }
         }
 
         pub fn add_user(&mut self, uid: usize) {
+            // add to ID store
             self.largest = self.largest + 1;
             self.id_store.insert(uid.clone(), self.largest.clone());
 
+            // create user map
+            let mut um = RwLock::new(HashMap::new());
+            self.u_map.push(um);
+
             // add bitmap flag for this user in every global bitmap
-            for (_, bmap) in self.b_map.iter_mut() {
-                bmap.push(false);
+            let mut new_bm = Vec::new();
+            self.b_map_r.for_each(|k, v| { new_bm.push((k.clone(), v[0].clone())) });
+
+            for y in new_bm.iter() {
+                let mut kv = y.0.clone();
+                let mut v = y.1.clone();
+                v.push(0);
+                self.b_map_w.insert(kv, v);
             }
+
+            self.b_map_w.refresh();
+
         }
 
-        pub fn remove_user(&mut self, uid: usize) {
-            let mut keys_to_del = Vec::new();
+        // Get all records that a given user has access to
+        pub fn get_all(&mut self, uid: usize) -> Option<Vec<(K, V)>> {
+            let uid = self.get_id(uid);
+            let mut u_map = self.u_map[uid].get_mut().unwrap();
+            let mut to_return : Vec<(K, V)> = Vec::new();
 
-            // remove all u_map records for this user and revoke access from all global entries
-            match self.id_store.get(&uid) {
-                Some(&id) => {
-                    for (k, bmap) in self.b_map.iter_mut() {
-                        bmap[id] = false;
+            for (k, v) in u_map.iter() {
+                for val in v.iter() {
+                    to_return.push((k.clone(), val.clone()));
+                }
+            }
 
-                        // do some cleanup: delete record if no users access it anymore
-                        let mut delete_whole = true;
-                        for flag in bmap.iter() {
-                            if *flag {
-                                delete_whole = false;
-                            }
-                        }
-                        if delete_whole {
-                            keys_to_del.push(k.clone());
-                        }
+            let mut buffer = Vec::new();
+            self.g_map_r.for_each(|k, v| { buffer.push((k.clone(), v[0].clone())) });
+
+            for (k, v) in buffer.iter() {
+                for val in v.iter() {
+                    let bmkey = (k.clone(), val.clone());
+                    let mut bmap = self.b_map_r.get_and(&bmkey, |s| s[0].clone()).unwrap();
+                    if bmap[uid] == 1 as usize {
+                        to_return.push(bmkey);
                     }
-                },
-                None => {}
+                }
             }
 
-            for k in &keys_to_del {
-                // FIXME(malte): this should adapt self.g_records as needed
-                self.g_map.remove(&k.0);
-                self.b_map.remove(k);
+            if to_return.len() > 0 {
+                return Some(to_return)
+            } else {
+                return None
             }
-
-            // remove all umap keys that start with this id
         }
+
+        // pub fn remove_user(&mut self, uid: usize) {
+        //
+        // }
+
+        // pub fn key_statistics(&self, k: K) {
+        //     let gmap = self.g_map.len();
+        //
+        //     match self.g_map.get(&k) {
+        //         Some(v) => trace!(self.log, "key: {:?}, len val: {:?}", k.clone(), v.len()),
+        //         None => ()
+        //     }
+        //
+        //     info!(self.log, "SRMap total # of g_map records: {:?}", gmap);
+        // }
+        //
+        // pub fn statistics(&self) {
+        //     if self.g_records % 1000 == 0 {
+        //         debug!(self.log, "SRMap total records across all keys: {:?}", self.g_records);
+        //     }
+        // }
     }
 
     use std::fmt::Debug;
 
     // SRMap WriteHandle wrapper structure
-    #[derive(Debug, Clone)]
+    #[derive(Clone)]
     pub struct WriteHandle<K, V, M = ()>
     where
         K: Eq + Hash + Clone + Debug,
         V: Clone + Eq + std::fmt::Debug + Hash,
    {
-       handle: Arc<RwLock<SRMap<K, V, M>>>,
+       handle: Rc<SRMap<K, V, M>>,
    }
 
    pub fn new_write<K, V, M>(
-       lock: Arc<RwLock<SRMap<K, V, M>>>,
+       lock: Rc<SRMap<K, V, M>>,
    ) -> WriteHandle<K, V, M>
    where
        K: Eq + Hash + Clone + std::fmt::Debug,
@@ -355,51 +356,44 @@ pub mod srmap {
        pub fn insert(&mut self, k: K, v: V, uid: usize) {
            let mut container = Vec::new();
            container.push(v);
-           let mut w_handle = self.handle.write().unwrap();
-           w_handle.insert(k.clone(), container, uid.clone());
+           self.handle.insert(k.clone(), container, uid.clone());
        }
 
        // Replace the value-set of the given key with the given value.
        pub fn update(&mut self, k: K, v: V, uid: usize) {
            let mut container = Vec::new();
            container.push(v);
-           let mut w_handle = self.handle.write().unwrap();
-           w_handle.insert(k.clone(), container, uid.clone());
+           self.handle.insert(k, container, uid.clone());
        }
 
        // Remove the given value from the value-set of the given key.
        pub fn remove(&mut self, k: K, uid: usize) {
-           let mut w_handle = self.handle.write().unwrap();
-           w_handle.remove(k.clone(), uid.clone());
+           self.handle.remove(&k, uid.clone());
        }
 
        pub fn add_user(&mut self, uid: usize) {
-           let mut w_handle = self.handle.write().unwrap();
-           w_handle.add_user(uid.clone());
+           self.handle.add_user(uid.clone());
        }
 
-       pub fn remove_user(&mut self, uid: usize) {
-           let mut w_handle = self.handle.write().unwrap();
-           w_handle.remove_user(uid.clone());
-       }
+       // pub fn remove_user(&mut self, uid: usize) {
+       //     let mut w_handle = self.handle.write().unwrap();
+       //     w_handle.remove_user(uid.clone());
+       // }
 
        pub fn refresh() {
            return
        }
 
        pub fn empty(&mut self, k: K, uid: usize) {
-           let mut w_handle = self.handle.write().unwrap();
-           w_handle.remove(k.clone(), uid.clone());
+           self.handle.remove(&k, uid.clone());
        }
 
        pub fn clear(&mut self, k: K, uid: usize) {
-           let mut w_handle = self.handle.write().unwrap();
-           w_handle.remove(k.clone(), uid.clone());
+           self.handle.remove(&k, uid.clone());
        }
 
        pub fn empty_at_index(&mut self, k: K, uid: usize) {
-           let mut w_handle = self.handle.write().unwrap();
-           w_handle.remove(k.clone(), uid.clone());
+           self.handle.remove(&k, uid.clone());
        }
 
        pub fn meta_get_and<F, T>(&self, key: &K, then: F, uid: usize) -> Option<(Option<T>, M)>
@@ -407,29 +401,30 @@ pub mod srmap {
            K: Hash + Eq,
            F: FnOnce(&[V]) -> T,
        {
-           let r_handle = self.handle.read().unwrap();
-           Some((r_handle.get(key, uid).map(move |v| then(&*v)), r_handle.meta.clone()))
+           Some((self.handle.get(key, uid).map(move |v| then(&*v)), self.handle.meta.clone()))
        }
 
        pub fn is_empty(&self) -> bool {
-           let r_handle = self.handle.read().unwrap();
-           r_handle.g_map.is_empty()
+           if self.handle.g_map_size() > 0 {
+               return false
+           }
+           return true
        }
 
    }
 
    // SRMap ReadHandle wrapper structure
-   #[derive(Debug, Clone)]
+   #[derive(Clone)]
    pub struct ReadHandle<K, V, M = ()>
    where
        K: Eq + Hash + Clone + std::fmt::Debug,
        V: Clone + Eq + std::fmt::Debug + Hash,
     {
-        pub(crate) inner: Arc<RwLock<SRMap<K, V, M>>>,
+        pub(crate) inner: Rc<SRMap<K, V, M>>,
     }
 
     // ReadHandle constructor
-    pub fn new_read<K, V, M>(store: Arc<RwLock<SRMap<K, V, M>>>) -> ReadHandle<K, V, M>
+    pub fn new_read<K, V, M>(store: Rc<SRMap<K, V, M>>) -> ReadHandle<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
         V: Clone + Eq + std::fmt::Debug + Hash,
@@ -450,22 +445,18 @@ pub mod srmap {
           self.with_handle(|inner| inner.meta.clone())
        }
 
-       /// Applies a function to the values corresponding to the key, and returns the result.
-       pub fn get_lock(&self) -> Arc<RwLock<SRMap<K, V, M>>>
-       {
-           self.inner.clone() // TODO make sure this is valid! want to keep only one locked map
-       }
-
        /// Returns the number of non-empty keys present in the map.
        pub fn len(&self) -> usize {
-           let r_handle = self.inner.read().unwrap();
-           r_handle.g_map.len()
+           self.inner.g_map_size()
        }
 
        /// Returns true if the map contains no elements.
        pub fn is_empty(&self) -> bool {
-           let r_handle = self.inner.read().unwrap();
-           r_handle.g_map.is_empty()
+           if self.inner.g_map_size() > 0 {
+               return true
+           } else {
+               return false
+           }
        }
 
        /// Applies a function to the values corresponding to the key, and returns the result.
@@ -474,8 +465,7 @@ pub mod srmap {
            K: Hash + Eq,
            F: FnOnce(&[V]) -> T,
        {
-           let r_handle = self.inner.read().unwrap();
-           r_handle.get(key, uid).map(move |v| then(&*v))
+           self.inner.get(key, uid).map(move |v| then(&*v))
        }
 
        pub fn meta_get_and<F, T>(&self, key: &K, then: F, uid: usize) -> Option<(Option<T>, M)>
@@ -483,40 +473,44 @@ pub mod srmap {
            K: Hash + Eq,
            F: FnOnce(&[V]) -> T,
        {
-           // trace!(self.log, "Wrapper func around inner map: trying to read: key {:?}, uid: {:?}", key.clone(), uid.clone());
-           let r_handle = self.inner.read().unwrap();
-           Some((r_handle.get(key, uid).map(move |v| then(&*v)), r_handle.meta.clone()))
-
+           let res = self.inner.get(key, uid).map(move |v| then(&*v));
+           let meta = self.inner.meta.clone();
+           Some((res, meta))
        }
 
        fn with_handle<F, T>(&self, f: F) -> Option<T>
        where
           F: FnOnce(&SRMap<K, V, M>) -> T,
        {
-           let r_handle = &*self.inner.read().unwrap();
-           let res = Some(f(&r_handle));
+           let res = Some(f(&self.inner));
            res
        }
 
        /// Read all values in the map, and transform them into a new collection.
-       pub fn for_each<F>(&self, mut f: F)
+       pub fn for_each<F>(&mut self, mut f: F, uid: usize)
        where
            F: FnMut(&K, &[V]),
        {
+           let res = self.inner.get_all(uid).unwrap();
+           let mut inner = Vec::new();
+           for (k, v) in &res {
+               let mut inn = Vec::new();
+               inn.push(v.clone());
+               inner.push((k.clone(), inn));
+           }
            self.with_handle(move |r_handle| {
-            for (k, vs) in &r_handle.g_map {
+            for (k, vs) in &inner {
                 f(k, &vs[..])
             }
         });
        }
 
-       pub fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool
-       where
-           K: Borrow<Q>,
-           Q: Hash + Eq,
-       {
-           let r_handle = self.inner.read().unwrap();
-           r_handle.g_map.contains_key(key)
+       pub fn contains_key(&self, key: &K, uid: usize) -> bool {
+           let res = self.inner.get(key, uid);
+           match res {
+               Some(r) => true,
+               None => false
+           }
        }
    }
 
@@ -527,325 +521,13 @@ pub mod srmap {
        V: Clone + Eq + std::fmt::Debug + Hash,
        M: Clone,
     {
-        let locked_map = Arc::new(RwLock::new(SRMap::<K,V,M>::new(meta_init)));
-        let r_handle = new_read(locked_map);
-        let lock = r_handle.get_lock();
-        let w_handle = new_write(lock);
+        let map = Rc::new(SRMap::<K,V,M>::new(meta_init));
+        let r_handle = new_read(map.clone());
+        let w_handle = new_write(map);
         (r_handle, w_handle)
     }
 }
 
-
-
-// pub mod srmap {
-//     use std::collections::HashMap;
-//     use std::hash::Hash;
-//     use std::char;
-//     use std::borrow::Borrow;
-//     use std::sync::{Arc, RwLock};
-//     use std::marker::PhantomData;
-//
-//     // SRMap inner structure
-//     #[derive(Clone)]
-//     #[derive(Serialize, Deserialize, Debug)]
-//     pub struct SRMap<K, V, M>
-//     where
-//         K: Eq + Hash + Clone + std::fmt::Debug,
-//         V: Clone + Eq + std::fmt::Debug + Hash,
-//     {
-//         pub g_map: HashMap<K, Vec<V>>, // Global map
-//         pub meta: M,
-//     }
-//
-//     impl<K, V, M> SRMap<K, V, M>
-//     where
-//         K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-//         V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + Hash,
-//         M: serde::Serialize + serde::de::DeserializeOwned,
-//     {
-//
-//         pub fn new(init_m: M) -> SRMap<K, V, M> {
-//             SRMap {
-//                 g_map: HashMap::new(),
-//                 meta: init_m
-//             }
-//         }
-//
-//         pub fn key_statistics(&self, k: K) {
-//             let gmap = self.g_map.len();
-//
-//             match self.g_map.get(&k) {
-//                 Some(v) => println!("key: {:?}, len val: {:?}", k.clone(), v.len()),
-//                 None => ()
-//             }
-//
-//             println!("total # of g_map records: {:?}", gmap);
-//         }
-//
-//         pub fn statistics(&self) {
-//             let mut total_recs = 0;
-//             for (k, v) in &self.g_map {
-//                 total_recs += v.len();
-//             }
-//             if total_recs % 1000 == 0 {
-//                 println!("Total records across all keys: {:?}", total_recs);
-//             }
-//         }
-//
-//         pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize) {
-//             let mut insert = false;
-//             match self.g_map.get_mut(&k) {
-//                 Some(vec) => {
-//                     for val in v.iter() {
-//                         vec.push(val.clone());
-//                     }
-//                 },
-//                 None => {
-//                     insert = true;
-//                 }
-//             };
-//             if insert {
-//                 self.g_map.insert(k.clone(), v);
-//             }
-//             self.statistics();
-//         }
-//
-//         pub fn get(&self, k: &K, uid: usize) -> Option<Vec<V>> {
-//             // println!("SRMap: getting key {:?}, uid {:?}, gmap: {:?}, umap: {:?}", k.clone(), uid.clone(), self.g_map.clone(), self.u_map.clone());
-//             match self.g_map.get(&k) {
-//                 Some(val) => Some(val.clone()),
-//                 None => None
-//             }
-//         }
-//
-//         pub fn remove(&mut self, k: K, uid: usize) {
-//             self.g_map.remove(&k);
-//         }
-//
-//         pub fn add_user(&mut self, uid: usize) {
-//
-//         }
-//
-//         pub fn remove_user(&mut self, uid: usize) {
-//
-//         }
-//     }
-//
-//     use std::fmt::Debug;
-//
-//     // SRMap WriteHandle wrapper structure
-//     #[derive(Deserialize, Serialize, Debug, Clone)]
-//     pub struct WriteHandle<K, V, M = ()>
-//     where
-//         K: Eq + Hash + Clone + Debug,
-//         V: Clone + Eq + std::fmt::Debug + Hash,
-//    {
-//        handle: Arc<RwLock<SRMap<K, V, M>>>,
-//    }
-//
-//    pub fn new_write<K, V, M>(
-//        lock: Arc<RwLock<SRMap<K, V, M>>>,
-//    ) -> WriteHandle<K, V, M>
-//    where
-//        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-//        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + Hash,
-//        M: serde::Serialize + serde::de::DeserializeOwned,
-//     {
-//         WriteHandle {
-//             handle: lock,
-//         }
-//     }
-//
-//     impl<K, V, M> WriteHandle<K, V, M>
-//     where
-//         K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-//         V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + Hash,
-//         M: Clone + serde::Serialize + serde::de::DeserializeOwned,
-//    {
-//        // Add the given value to the value-set of the given key.
-//        pub fn insert(&mut self, k: K, v: V, uid: usize) {
-//            let mut container = Vec::new();
-//            container.push(v);
-//            let mut w_handle = self.handle.write().unwrap();
-//            w_handle.insert(k.clone(), container, uid.clone());
-//        }
-//
-//        // Replace the value-set of the given key with the given value.
-//        pub fn update(&mut self, k: K, v: V, uid: usize) {
-//            let mut container = Vec::new();
-//            container.push(v);
-//            let mut w_handle = self.handle.write().unwrap();
-//            w_handle.insert(k.clone(), container, uid.clone());
-//        }
-//
-//        // Remove the given value from the value-set of the given key.
-//        pub fn remove(&mut self, k: K, uid: usize) {
-//            let mut w_handle = self.handle.write().unwrap();
-//            w_handle.remove(k.clone(), uid.clone());
-//        }
-//
-//        pub fn add_user(&mut self, uid: usize) {
-//            let mut w_handle = self.handle.write().unwrap();
-//            w_handle.add_user(uid.clone());
-//        }
-//
-//        pub fn remove_user(&mut self, uid: usize) {
-//            let mut w_handle = self.handle.write().unwrap();
-//            w_handle.remove_user(uid.clone());
-//        }
-//
-//        pub fn refresh() {
-//            return
-//        }
-//
-//        pub fn empty(&mut self, k: K, uid: usize) {
-//            let mut w_handle = self.handle.write().unwrap();
-//            w_handle.remove(k.clone(), uid.clone());
-//        }
-//
-//        pub fn clear(&mut self, k: K, uid: usize) {
-//            let mut w_handle = self.handle.write().unwrap();
-//            w_handle.remove(k.clone(), uid.clone());
-//        }
-//
-//        pub fn empty_at_index(&mut self, k: K, uid: usize) {
-//            let mut w_handle = self.handle.write().unwrap();
-//            w_handle.remove(k.clone(), uid.clone());
-//        }
-//
-//        pub fn meta_get_and<F, T>(&self, key: &K, then: F, uid: usize) -> Option<(Option<T>, M)>
-//        where
-//            K: Hash + Eq,
-//            F: FnOnce(&[V]) -> T,
-//        {
-//            let r_handle = self.handle.read().unwrap();
-//            Some((r_handle.get(key, uid).map(move |v| then(&*v)), r_handle.meta.clone()))
-//        }
-//
-//        pub fn is_empty(&self) -> bool {
-//            let r_handle = self.handle.read().unwrap();
-//            r_handle.g_map.is_empty()
-//        }
-//
-//    }
-//
-//    // SRMap ReadHandle wrapper structure
-//    #[derive(Serialize, Deserialize, Debug, Clone)]
-//    pub struct ReadHandle<K, V, M = ()>
-//    where
-//        K: Eq + Hash + Clone + std::fmt::Debug,
-//        V: Clone + Eq + std::fmt::Debug + Hash,
-//     {
-//         pub(crate) inner: Arc<RwLock<SRMap<K, V, M>>>,
-//     }
-//
-//     // ReadHandle constructor
-//     pub fn new_read<K, V, M>(store: Arc<RwLock<SRMap<K, V, M>>>) -> ReadHandle<K, V, M>
-//     where
-//         K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-//         V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + Hash,
-//         M: serde::Serialize + serde::de::DeserializeOwned,
-//     {
-//         ReadHandle {
-//             inner: store,
-//         }
-//     }
-//
-//     impl<K, V, M> ReadHandle<K, V, M>
-//     where
-//         K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-//         V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + Hash,
-//         M: Clone + serde::Serialize + serde::de::DeserializeOwned,
-//     {
-//        /// Get the current meta value.
-//        pub fn meta(&self) -> Option<M> {
-//           self.with_handle(|inner| inner.meta.clone())
-//        }
-//
-//        /// Applies a function to the values corresponding to the key, and returns the result.
-//        pub fn get_lock(&self) -> Arc<RwLock<SRMap<K, V, M>>>
-//        {
-//            self.inner.clone() // TODO make sure this is valid! want to keep only one locked map
-//        }
-//
-//        /// Returns the number of non-empty keys present in the map.
-//        pub fn len(&self) -> usize {
-//            let r_handle = self.inner.read().unwrap();
-//            r_handle.g_map.len()
-//        }
-//
-//        /// Returns true if the map contains no elements.
-//        pub fn is_empty(&self) -> bool {
-//            let r_handle = self.inner.read().unwrap();
-//            r_handle.g_map.is_empty()
-//        }
-//
-//        /// Applies a function to the values corresponding to the key, and returns the result.
-//        pub fn get_and<F, T>(&self, key: &K, then: F, uid: usize) -> Option<T>
-//        where
-//            K: Hash + Eq,
-//            F: FnOnce(&[V]) -> T,
-//        {
-//            let r_handle = self.inner.read().unwrap();
-//            r_handle.get(key, uid).map(move |v| then(&*v))
-//        }
-//
-//        pub fn meta_get_and<F, T>(&self, key: &K, then: F, uid: usize) -> Option<(Option<T>, M)>
-//        where
-//            K: Hash + Eq,
-//            F: FnOnce(&[V]) -> T,
-//        {
-//            // println!("Wrapper func around inner map: trying to read: key {:?}, uid: {:?}", key.clone(), uid.clone());
-//            let r_handle = self.inner.read().unwrap();
-//            Some((r_handle.get(key, uid).map(move |v| then(&*v)), r_handle.meta.clone()))
-//
-//        }
-//
-//        fn with_handle<F, T>(&self, f: F) -> Option<T>
-//        where
-//           F: FnOnce(&SRMap<K, V, M>) -> T,
-//        {
-//            let r_handle = &*self.inner.read().unwrap();
-//            let res = Some(f(&r_handle));
-//            res
-//        }
-//
-//        /// Read all values in the map, and transform them into a new collection.
-//        pub fn for_each<F>(&self, mut f: F)
-//        where
-//            F: FnMut(&K, &[V]),
-//        {
-//            self.with_handle(move |r_handle| {
-//             for (k, vs) in &r_handle.g_map {
-//                 f(k, &vs[..])
-//             }
-//         });
-//        }
-//
-//        pub fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool
-//        where
-//            K: Borrow<Q>,
-//            Q: Hash + Eq,
-//        {
-//            let r_handle = self.inner.read().unwrap();
-//            r_handle.g_map.contains_key(key)
-//        }
-//    }
-//
-//    // Constructor for read/write handle tuple
-//    pub fn construct<K, V, M>(meta_init: M) -> (ReadHandle<K, V, M>, WriteHandle<K, V, M>)
-//    where
-//        K: Eq + Hash + Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned,
-//        V: Clone + Eq + serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + Hash,
-//        M: Clone + serde::Serialize + serde::de::DeserializeOwned,
-//     {
-//         let locked_map = Arc::new(RwLock::new(SRMap::<K,V,M>::new(meta_init)));
-//         let r_handle = new_read(locked_map);
-//         let lock = r_handle.get_lock();
-//         let w_handle = new_write(lock);
-//         (r_handle, w_handle)
-//     }
-// }
 
 #[bench]
 fn bench_insert_throughput(b: &mut Bencher) {
