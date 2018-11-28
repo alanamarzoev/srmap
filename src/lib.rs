@@ -39,9 +39,8 @@ pub mod srmap {
         V: Clone + Eq + std::fmt::Debug + Hash,
     {
         pub g_map_r: evmap::ReadHandle<K, HashSet<V>>,
-        pub g_map_w: Arc<Mutex<evmap::WriteHandle<K, HashSet<V>>>>,
         pub b_map_r: evmap::ReadHandle<(K, V), Vec<usize>>,
-        pub b_map_w: Arc<Mutex<evmap::WriteHandle<(K, V), Vec<usize>>>>,
+        pub global_w: Arc<Mutex<(evmap::WriteHandle<K, HashSet<V>>, evmap::WriteHandle<(K, V), Vec<usize>>)>>,
         pub u_map: Vec<Arc<RwLock<HashMap<K, HashSet<V>>>>>,
         pub id_store: HashMap<usize, usize>,
         pub meta: M,
@@ -64,9 +63,8 @@ pub mod srmap {
             u_map.push(Arc::new(RwLock::new(HashMap::new())));
             SRMap {
                 g_map_r: g_map_r,
-                g_map_w: Arc::new(Mutex::new(g_map_w)),
+                global_w: Arc::new(Mutex::new((g_map_w, b_map_w))),
                 b_map_r: b_map_r,
-                b_map_w: Arc::new(Mutex::new(b_map_w)),
                 u_map: u_map,
                 id_store: HashMap::new(),
                 meta: init_m,
@@ -104,23 +102,24 @@ pub mod srmap {
                 uid = self.get_id(id.clone());
             }
             let uid = uid.unwrap();
-            let mut b_map_w = &mut self.b_map_w.lock().unwrap();
-            println!("bmap pending: {:?}", b_map_w.pending());
+
+            let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
+
             b_map_w.flush();
-            let mut g_map_w = &mut self.g_map_w.lock().unwrap();
 
             if (uid == (0 as usize)) {
                 // Add record to existing set of values if it exists, otherwise create a new set
                 match value_set {
                     Some(mut set) => {
-                        let mut g_map_w = &mut self.g_map_w.lock().unwrap();
-                        let mut b_map_w = &mut self.b_map_w.lock().unwrap();
+                        // let mut g_map_w = &mut self.g_map_w.lock().unwrap();
+                        // let mut b_map_w = &mut self.b_map_w.lock().unwrap();
                         for val in &v {
+                            // println!("here5");
+
                             if !set.contains(val) {
                                 // Add (index, value) to global map
                                 set.insert(val.clone()); //TODO do a set merge instead of this
                                 g_map_w.update(k.clone(), set.clone());
-                                g_map_w.refresh();
 
                                 // Create new bitmap for this value
                                 let mut bit_map = Vec::new();
@@ -134,12 +133,15 @@ pub mod srmap {
                                 b_map_w.insert((k.clone(), val.clone()), bit_map);
                             }
                         }
+                        g_map_w.refresh();
                         b_map_w.refresh();
                     },
                     None => {
+                        // println!("here4");
+
                         let mut vset : HashSet<V> = HashSet::from_iter(v.clone());
-                        let mut g_map_w = &mut self.g_map_w.lock().unwrap();
-                        let mut b_map_w = &mut self.b_map_w.lock().unwrap();
+                        // let mut g_map_w = &mut self.g_map_w.lock().unwrap();
+                        // let mut b_map_w = &mut self.b_map_w.lock().unwrap();
                         g_map_w.insert(k.clone(), vset);
                         g_map_w.refresh();
                         for val in &v {
@@ -157,6 +159,8 @@ pub mod srmap {
                     }
                 }
             } else {
+                // println!("here3");
+
                 // User insert. First check to see if the value exists in the global map.
                 // If it does, update the bitmap. If it doesn't, add to the user's map.
                 let mut u_map_insert = false;
@@ -165,12 +169,12 @@ pub mod srmap {
                         for val in &v {
                             match set.get(val) {
                                 Some(value) => {
-                                    let mut b_map_w = &mut self.b_map_w.lock().unwrap();
+                                    // let mut b_map_w = &mut b_map_w.lock().unwrap();
                                     let bm_key = (k.clone(), value.clone());
                                     b_map_w.refresh();
                                     let mut bm = self.b_map_r.get_and(&bm_key, |s| s[0].clone()).unwrap();
-                                    println!("bmkey: {:?}", bm_key.clone());
-                                    println!("about to access bm {:?}, indexed by uid: {:?}", bm.clone(), uid.clone());
+                                    // println!("bmkey: {:?}", bm_key.clone());
+                                    // println!("about to access bm {:?}, indexed by uid: {:?}", bm.clone(), uid.clone());
                                     bm[uid] = 1 as usize;
                                     b_map_w.update(bm_key, bm);
                                 },
@@ -187,8 +191,10 @@ pub mod srmap {
 
                 // Insert into user map.
                 if u_map_insert {
+                    // println!("here6");
+
                     let mut v_set : HashSet<V> = v.iter().cloned().collect();
-                    println!("Accessing umap of uid {:?}", uid.clone());
+                    // println!("Accessing umap of uid {:?}", uid.clone());
                     let mut u_map = self.u_map[uid].write().unwrap();
                     {
                         let mut res_set = u_map.get(&k);
@@ -287,18 +293,19 @@ pub mod srmap {
             let mut um = Arc::new(RwLock::new(HashMap::new()));
             self.u_map.push(um);
 
-            println!("Adding umap for user with uid: {:?} internal: {:?}, len of umap vec: {:?}", uid.clone(), self.largest.clone(), self.u_map.len());
+            // println!("Adding umap for user with uid: {:?} internal: {:?}, len of umap vec: {:?}", uid.clone(), self.largest.clone(), self.u_map.len());
 
             // add bitmap flag for this user in every global bitmap
             let mut new_bm = Vec::new();
             self.b_map_r.for_each(|k, v| { new_bm.push((k.clone(), v[0].clone())) });
-            let mut b_map_w = &mut self.b_map_w.lock().unwrap();
+
+            let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
 
             for y in new_bm.iter() {
                 let mut kv = y.0.clone();
                 let mut v = y.1.clone();
                 v.push(0);
-                println!("updating bmaps: {:?} {:?}", kv.clone(), v.clone());
+                // println!("updating bmaps: {:?} {:?}", kv.clone(), v.clone());
 
                 b_map_w.insert(kv.clone(), v.clone());
 
@@ -347,27 +354,6 @@ pub mod srmap {
                 return None
             }
         }
-
-        // pub fn remove_user(&mut self, uid: usize) {
-        //
-        // }
-
-        // pub fn key_statistics(&self, k: K) {
-        //     let gmap = self.g_map.len();
-        //
-        //     match self.g_map.get(&k) {
-        //         Some(v) => trace!(self.log, "key: {:?}, len val: {:?}", k.clone(), v.len()),
-        //         None => ()
-        //     }
-        //
-        //     info!(self.log, "SRMap total # of g_map records: {:?}", gmap);
-        // }
-        //
-        // pub fn statistics(&self) {
-        //     if self.g_records % 1000 == 0 {
-        //         debug!(self.log, "SRMap total records across all keys: {:?}", self.g_records);
-        //     }
-        // }
     }
 
     use std::fmt::Debug;
@@ -423,11 +409,6 @@ pub mod srmap {
            self.handle.add_user(uid.clone());
        }
 
-       // pub fn remove_user(&mut self, uid: usize) {
-       //     let mut w_handle = self.handle.write().unwrap();
-       //     w_handle.remove_user(uid.clone());
-       // }
-
        pub fn refresh() {
            return
        }
@@ -459,35 +440,7 @@ pub mod srmap {
            return true
        }
 
-   // }
-   //
-   // // SRMap ReadHandle wrapper structure
-   // #[derive(Clone)]
-   // pub struct ReadHandle<K, V, M = ()>
-   // where
-   //     K: Eq + Hash + Clone + std::fmt::Debug,
-   //     V: Clone + Eq + std::fmt::Debug + Hash,
-   //  {
-   //      pub(crate) inner: Arc<SRMap<K, V, M>>,
-   //  }
-   //
-   //  // ReadHandle constructor
-   //  pub fn new_read<K, V, M>(store: Arc<SRMap<K, V, M>>) -> ReadHandle<K, V, M>
-   //  where
-   //      K: Eq + Hash + Clone + std::fmt::Debug,
-   //      V: Clone + Eq + std::fmt::Debug + Hash,
-   //  {
-   //      ReadHandle {
-   //          inner: store,
-   //      }
-   //  }
-   //
-   //  impl<K, V, M> ReadHandle<K, V, M>
-   //  where
-   //      K: Eq + Hash + Clone + std::fmt::Debug,
-   //      V: Clone + Eq + std::fmt::Debug + Hash,
-   //      M: Clone,
-   //  {
+
        /// Get the current meta value.
        pub fn meta(&self) -> Option<M> {
           self.with_handle(|inner| inner.meta.clone())
@@ -498,15 +451,6 @@ pub mod srmap {
            self.handle.g_map_size()
        }
 
-       /// Returns true if the map contains no elements.
-       // pub fn is_empty(&self) -> bool {
-       //     if self.inner.g_map_size() > 0 {
-       //         return true
-       //     } else {
-       //         return false
-       //     }
-       // }
-
        /// Applies a function to the values corresponding to the key, and returns the result.
        pub fn get_and<F, T>(&self, key: &K, then: F, uid: usize) -> Option<T>
        where
@@ -515,16 +459,6 @@ pub mod srmap {
        {
            self.handle.get(key, uid).map(move |v| then(&*v))
        }
-
-       // pub fn meta_get_and<F, T>(&self, key: &K, then: F, uid: usize) -> Option<(Option<T>, M)>
-       // where
-       //     K: Hash + Eq,
-       //     F: FnOnce(&[V]) -> T,
-       // {
-       //     let res = self.inner.get(key, uid).map(move |v| then(&*v));
-       //     let meta = self.inner.meta.clone();
-       //     Some((res, meta))
-       // }
 
        fn with_handle<F, T>(&self, f: F) -> Option<T>
        where
