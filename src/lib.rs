@@ -560,6 +560,16 @@ fn bench_insert_multival(b: &mut Bencher) {
         w.insert(k.clone(), format!("v{}", i), 0);
         i += 1;
     });
+
+    b.iter(|| {
+        w.insert(k.clone(), format!("v{}", i), 1);
+        i += 1;
+    });
+
+    b.iter(|| {
+        w.insert(k.clone(), format!("v{}", i), 2);
+        i += 1;
+    });
 }
 
 
@@ -581,5 +591,9 @@ fn bench_get_throughput(b: &mut Bencher) {
 
     b.iter(|| {
         r.get_and(&k, |_| false, uid1);
+    });
+
+    b.iter(|| {
+        r.get_and(&k, |_| false, uid2);
     });
 }
