@@ -6,6 +6,9 @@ authors = ["alanamarzoev"]
 description = "A lock-free, eventually consistent, concurrent multi-value map."
 license = "MIT/Apache-2.0"
 
+[profile.release]
+debug = true
+
 [dependencies]
 evmap = { path = "/Users/alanamarzoev/Desktop/multidb/rust-evmap" }
 
