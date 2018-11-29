@@ -46,7 +46,7 @@ pub mod srmap {
                 evmap::WriteHandle<(K, V), Vec<usize>>,
             )>,
         >,
-        pub u_map: Vec<Arc<RwLock<HashMap<K, HashSet<V>>>>>,
+        pub u_map: Vec<Arc<RwLock<HashMap<K, Vec<V>>>>>,
         pub id_store: HashMap<usize, usize>,
         pub meta: M,
         largest: usize,
@@ -133,12 +133,44 @@ pub mod srmap {
                 }
                 g_map_w.refresh();
                 b_map_w.refresh();
+
             } else {
-                // println!("here3");
+                // If value exists in global map and isn't accessible -> flip a bit.
+                // Otherwise, add the value to the user's map.
+                let mut u_map = self.u_map[uid].write().unwrap();
+                let mut added = false;
+                let mut same_as_global = self.g_map_r.get_and(&k.clone(), |vs| {
+                    for val in &v {
+                        let mut last_seen = 0;
+                        let mut count = 0 as usize;
+                        let mut found = false;
+                        let mut bmap : Vec<usize> = Vec::new();
+
+                        for v in vs {
+                            if *v == *val && count > last_seen && found == false {
+                                self.b_map_r.get_and(&(k.clone(), val.clone()), |s| { if s[count][uid] == 0 { found = true;
+                                                                                                              bmap = s[count].clone()}
+                                                                                                             else { last_seen = count; }});
+                                count = count + 1 as usize;
+                            }
+                        }
+
+                        if found {
+                            bmap[uid] = 1 as usize;
+                            b_map_w.update((k.clone(), val.clone()), bmap.clone());
+                            b_map_w.refresh();
+                        } else {
+                            match u_map.get_mut(&k){
+                                Some(vec) => vec.push(val.clone()),
+                                None => { let mut new_vec = Vec::new(); new_vec.push(val.clone()); }
+                            }
+                        }
+                    }
+                });
 
                 // User insert. First check to see if the value exists in the global map.
                 // If it does, update the bitmap. If it doesn't, add to the user's map.
-                let mut u_map_insert = false;
+                // let mut u_map_insert = false;
 
                 //                let mut same_as_global = self.g_map_r.get_and(&k, |vs| {
                 //                    for val in &v {
@@ -174,22 +206,22 @@ pub mod srmap {
                 //                };
 
                 // Insert into user map.
-                if u_map_insert {
-                    // println!("here6");
-
-                    let mut v_set: HashSet<V> = v.iter().cloned().collect();
-                    // println!("Accessing umap of uid {:?}", uid.clone());
-                    let mut u_map = self.u_map[uid].write().unwrap();
-                    {
-                        let mut res_set = u_map.get(&k);
-                        if res_set != None {
-                            let mut res_set = res_set.unwrap();
-                            v_set = v_set.union(res_set).cloned().collect();
-                        }
-                    }
-                    u_map.insert(k.clone(), v_set);
-
-                }
+                // if u_map_insert {
+                //     // println!("here6");
+                //
+                //     let mut v_set: HashSet<V> = v.iter().cloned().collect();
+                //     // println!("Accessing umap of uid {:?}", uid.clone());
+                //     let mut u_map = self.u_map[uid].write().unwrap();
+                //     {
+                //         let mut res_set = u_map.get(&k);
+                //         if res_set != None {
+                //             let mut res_set = res_set.unwrap();
+                //             v_set = v_set.union(res_set).cloned().collect();
+                //         }
+                //     }
+                //     u_map.insert(k.clone(), v_set);
+                //
+                // }
             }
         }
 
@@ -205,12 +237,12 @@ pub mod srmap {
 
             let mut u_map = self.u_map[uid].write().unwrap();
 
-            let mut v_set = u_map.get_mut(k);
-            let mut res_set : HashSet<V>;
-            if v_set != None {
-                res_set = v_set.unwrap().clone();
+            let mut v_vec = u_map.get_mut(k);
+            let mut res_list : Vec<V>;
+            if v_vec != None {
+                res_list = v_vec.unwrap().clone();
             } else {
-                res_set = HashSet::new();
+                res_list = Vec::new();
             }
 
             self.g_map_r.get_and(&k, |set| {
@@ -220,13 +252,13 @@ pub mod srmap {
                         .get_and(&(k.clone(), v.clone()), |s| s[0].clone())
                         .unwrap()[uid];
                     if access == 1 as usize {
-                        res_set.insert(v.clone());
+                        res_list.push(v.clone());
                     }
                 }
             });
 
             let mut to_return = Vec::new();
-            for x in res_set.iter() {
+            for x in res_list.iter() {
                 to_return.push(x.clone());
             }
             if to_return.len() > 0 {
