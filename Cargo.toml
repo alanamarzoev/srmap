@@ -16,3 +16,4 @@ evmap = { path = "/Users/alanamarzoev/Desktop/multidb/rust-evmap" }
 # slog = { version = "2.2.2", features = ["max_level_trace", "release_max_level_trace"] }
 slog = "2.2.2"
 slog-term = "2.4.0"
+time = "0.1"
