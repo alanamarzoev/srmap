@@ -7,6 +7,7 @@ extern crate slog;
 extern crate slog_term;
 extern crate evmap;
 extern crate test;
+extern crate time;
 
 use test::Bencher;
 
@@ -32,7 +33,6 @@ pub mod srmap {
     use std::sync::Mutex;
 
     // SRMap inner structure
-    #[derive(Clone)]
     pub struct SRMap<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
@@ -52,6 +52,7 @@ pub mod srmap {
         largest: usize,
         g_records: usize,
         log: slog::Logger,
+        initialized: bool,
     }
 
     impl<K, V, M> SRMap<K, V, M>
@@ -75,6 +76,7 @@ pub mod srmap {
                 g_records: 0,
                 largest: 0 as usize,
                 log: logger,
+                initialized: false
             }
         }
 
@@ -98,7 +100,6 @@ pub mod srmap {
         // universe.
         pub fn insert(&mut self, k: K, v: Vec<V>, id: usize) {
             // If uid is 0, insert records into global universe
-
             let mut uid = self.get_id(id.clone());
             if uid == None {
                 self.add_user(id.clone());
@@ -116,10 +117,9 @@ pub mod srmap {
                 // let mut b_map_w = &mut self.b_map_w.lock().unwrap();
                 for val in v {
                     // println!("here5");
-
+                    self.g_records += 1;
                     // Add (index, value) to global map
                     g_map_w.insert(k.clone(), val.clone());
-
                     // Create new bitmap for this value
                     let mut bit_map = Vec::new();
                     for x in 0..self.largest + 1 {
@@ -129,12 +129,17 @@ pub mod srmap {
                             bit_map.push(0 as usize);
                         }
                     }
+
+                    // println!("global: inserting k: {:?} v: {:?} bmap: {:?}", k.clone(), val.clone(), bit_map.clone());
+
                     b_map_w.insert((k.clone(), val.clone()), bit_map);
                 }
                 g_map_w.refresh();
                 b_map_w.refresh();
+                // println!("num grecords: {:?}", self.g_records.clone());
 
             } else {
+                // println!("here... ");
                 // If value exists in global map and isn't accessible -> flip a bit.
                 // Otherwise, add the value to the user's map.
                 let mut u_map = self.u_map[uid].write().unwrap();
@@ -144,20 +149,37 @@ pub mod srmap {
                         let mut last_seen = 0;
                         let mut count = 0 as usize;
                         let mut found = false;
-                        let mut bmap : Vec<usize> = Vec::new();
-
+                        let mut bmap : Vec<Vec<usize>> = Vec::new();
+                        // let mut add_user = false;
+                        // println!("VS len : {:?}", vs.len().clone());
                         for v in vs {
-                            if *v == *val && count > last_seen && found == false {
-                                self.b_map_r.get_and(&(k.clone(), val.clone()), |s| { if s[count][uid] == 0 { found = true;
-                                                                                                              bmap = s[count].clone()}
+                            if *v == *val && count >= last_seen && found == false {
+                                self.b_map_r.get_and(&(k.clone(), val.clone()), |s| {
+                                    //println!("s: {:?}", s.clone());
+                                //                                                       println!("count: {:?} uid: {:?}", count.clone(), uid.clone());
+                                //                                                       println!("k: {:?} v: {:?}", k.clone(), v.clone());
+                                                                                      if s[count][uid] == 0 { found = true;
+                                                                                                              bmap = s.to_vec().clone();
+                                                                                                             }
                                                                                                              else { last_seen = count; }});
-                                count = count + 1 as usize;
+                                if found {
+                                    // println!("breaking at count {:?}", count.clone());
+                                    break;
+                                    // println!("shouldn't happen");
+                                } else {
+                                    count = count + 1 as usize;
+                                }
                             }
                         }
 
                         if found {
-                            bmap[uid] = 1 as usize;
-                            b_map_w.update((k.clone(), val.clone()), bmap.clone());
+                            bmap[count][uid] = 1 as usize;
+                            let bmkey = (k.clone(), val.clone());
+                            b_map_w.clear(bmkey.clone());
+                            for v in &bmap {
+                                b_map_w.insert(bmkey.clone(), v.clone());
+                            }
+                            // println!("updated bitmap: {:?}", bmap.clone());
                             b_map_w.refresh();
                         } else {
                             match u_map.get_mut(&k){
@@ -167,61 +189,6 @@ pub mod srmap {
                         }
                     }
                 });
-
-                // User insert. First check to see if the value exists in the global map.
-                // If it does, update the bitmap. If it doesn't, add to the user's map.
-                // let mut u_map_insert = false;
-
-                //                let mut same_as_global = self.g_map_r.get_and(&k, |vs| {
-                //                    for val in &v {
-                //                        if vs.contains(val) {
-                //                            // check bitmap
-                //                        } else {
-                //                        }
-                //                });
-                //                match value_set {
-                //                    Some(set) => {
-                //                        for val in &v {
-                //                            match set.get(val) {
-                //                                Some(value) => {
-                //                                    // let mut b_map_w = &mut b_map_w.lock().unwrap();
-                //                                    let bm_key = (k.clone(), value.clone());
-                //                                    b_map_w.refresh();
-                //                                    let mut bm =
-                //                                        self.b_map_r.get_and(&bm_key, |s| s[0].clone()).unwrap();
-                //                                    // println!("bmkey: {:?}", bm_key.clone());
-                //                                    // println!("about to access bm {:?}, indexed by uid: {:?}", bm.clone(), uid.clone());
-                //                                    bm[uid] = 1 as usize;
-                //                                    b_map_w.update(bm_key, bm);
-                //                                }
-                //                                None => {
-                //                                    u_map_insert = true;
-                //                                }
-                //                            }
-                //                        }
-                //                    }
-                //                    None => {
-                //                        u_map_insert = true;
-                //                    }
-                //                };
-
-                // Insert into user map.
-                // if u_map_insert {
-                //     // println!("here6");
-                //
-                //     let mut v_set: HashSet<V> = v.iter().cloned().collect();
-                //     // println!("Accessing umap of uid {:?}", uid.clone());
-                //     let mut u_map = self.u_map[uid].write().unwrap();
-                //     {
-                //         let mut res_set = u_map.get(&k);
-                //         if res_set != None {
-                //             let mut res_set = res_set.unwrap();
-                //             v_set = v_set.union(res_set).cloned().collect();
-                //         }
-                //     }
-                //     u_map.insert(k.clone(), v_set);
-                //
-                // }
             }
         }
 
@@ -229,6 +196,7 @@ pub mod srmap {
         pub fn get(&self, k: &K, id: usize) -> Option<Vec<V>> { //TODO optimize this!! will prob be slow
             let mut id = self.get_id(id.clone());
             let mut uid = 0;
+            // println!("in get");
             if id == None {
                 return None
             } else {
@@ -236,6 +204,7 @@ pub mod srmap {
             }
 
             let mut u_map = self.u_map[uid].write().unwrap();
+            // println!("acquired umap");
 
             let mut v_vec = u_map.get_mut(k);
             let mut res_list : Vec<V>;
@@ -245,8 +214,10 @@ pub mod srmap {
                 res_list = Vec::new();
             }
 
+            // println!("call to evmap get_and");
             self.g_map_r.get_and(&k, |set| {
                 for v in set {
+                    // println!("call to bmap srmap get_and");
                     let access = self
                         .b_map_r
                         .get_and(&(k.clone(), v.clone()), |s| s[0].clone())
@@ -261,9 +232,12 @@ pub mod srmap {
             for x in res_list.iter() {
                 to_return.push(x.clone());
             }
+            // println!("about to return vec of records");
             if to_return.len() > 0 {
+                // println!("returning some");
                 return Some(to_return)
             } else {
+                // println!("returning none");
                 return None
             }
         }
@@ -295,29 +269,34 @@ pub mod srmap {
 
         pub fn add_user(&mut self, uid: usize) {
             // add to ID store
-            if self.largest == 0 && uid == 0 {
-                self.largest = 0;
-            } else {
-                self.largest = self.largest + 1;
+            if self.initialized {
+                self.largest += 1;
             }
+
+            self.initialized = true;
             // create user map
             let mut um = Arc::new(RwLock::new(HashMap::new()));
             self.u_map.push(um);
 
+            let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
+
             // println!("Adding umap for user with uid: {:?} internal: {:?}, len of umap vec: {:?}", uid.clone(), self.largest.clone(), self.u_map.len());
+            b_map_w.refresh();
 
             // add bitmap flag for this user in every global bitmap
             let mut new_bm = Vec::new();
-            self.b_map_r.for_each(|k, v| { new_bm.push((k.clone(), v[0].clone())) });
+            self.b_map_r.for_each(|k, v| { new_bm.push((k.clone(), v[0].clone())) }); // TODO Change to get all
 
-            let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
+            for y in new_bm.iter() {
+                b_map_w.clear(y.0.clone());
+            }
 
+            // println!("adding user {:?} to {:?} record bms", uid.clone(), new_bm.len().clone());
             for y in new_bm.iter() {
                 let mut kv = y.0.clone();
                 let mut v = y.1.clone();
                 v.push(0);
-                // println!("updating bmaps: {:?} {:?}", kv.clone(), v.clone());
-
+                // println!("k: {:?} new bm: {:?}", kv.clone(), v.clone());
                 b_map_w.insert(kv.clone(), v.clone());
 
             }
@@ -375,10 +354,10 @@ pub mod srmap {
         K: Eq + Hash + Clone + Debug,
         V: Clone + Eq + std::fmt::Debug + Hash + evmap::ShallowCopy,
     {
-        handle: SRMap<K, V, M>,
+        handle: Arc<Mutex<SRMap<K, V, M>>>,
     }
 
-    pub fn new_write<K, V, M>(lock: SRMap<K, V, M>) -> WriteHandle<K, V, M>
+    pub fn new_write<K, V, M>(lock: Arc<Mutex<SRMap<K, V, M>>>) -> WriteHandle<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
         V: Clone + Eq + std::fmt::Debug + Hash + evmap::ShallowCopy,
@@ -396,23 +375,23 @@ pub mod srmap {
        pub fn insert(&mut self, k: K, v: V, uid: usize) {
            let mut container = Vec::new();
            container.push(v);
-           self.handle.insert(k.clone(), container, uid.clone());
+           self.handle.lock().unwrap().insert(k.clone(), container, uid.clone());
        }
 
        // Replace the value-set of the given key with the given value.
        pub fn update(&mut self, k: K, v: V, uid: usize) {
            let mut container = Vec::new();
            container.push(v);
-           self.handle.insert(k, container, uid.clone());
+           self.handle.lock().unwrap().insert(k, container, uid.clone());
        }
 
        // Remove the given value from the value-set of the given key.
        pub fn remove(&mut self, k: K, uid: usize) {
-           self.handle.remove(&k, uid.clone());
+           self.handle.lock().unwrap().remove(&k, uid.clone());
        }
 
        pub fn add_user(&mut self, uid: usize) {
-           self.handle.add_user(uid.clone());
+           self.handle.lock().unwrap().add_user(uid.clone());
        }
 
        pub fn refresh() {
@@ -420,15 +399,15 @@ pub mod srmap {
        }
 
        pub fn empty(&mut self, k: K, uid: usize) {
-           self.handle.remove(&k, uid.clone());
+           self.handle.lock().unwrap().remove(&k, uid.clone());
        }
 
        pub fn clear(&mut self, k: K, uid: usize) {
-           self.handle.remove(&k, uid.clone());
+           self.handle.lock().unwrap().remove(&k, uid.clone());
        }
 
        pub fn empty_at_index(&mut self, k: K, uid: usize) {
-           self.handle.remove(&k, uid.clone());
+           self.handle.lock().unwrap().remove(&k, uid.clone());
        }
 
        pub fn meta_get_and<F, T>(&self, key: &K, then: F, uid: usize) -> Option<(Option<T>, M)>
@@ -436,16 +415,17 @@ pub mod srmap {
            K: Hash + Eq,
            F: FnOnce(&[V]) -> T,
        {
-           Some((self.handle.get(key, uid).map(move |v| then(&*v)), self.handle.meta.clone()))
+           // println!("start of meta get and in srmap");
+           let meta = self.handle.lock().unwrap().meta.clone();
+           Some((self.handle.lock().unwrap().get(key, uid).map(move |v| then(&*v)), meta.clone()))
        }
 
        pub fn is_empty(&self) -> bool {
-           if self.handle.g_map_size() > 0 {
+           if self.handle.lock().unwrap().g_map_size() > 0 {
                return false
            }
            return true
        }
-
 
        /// Get the current meta value.
        pub fn meta(&self) -> Option<M> {
@@ -454,7 +434,7 @@ pub mod srmap {
 
        /// Returns the number of non-empty keys present in the map.
        pub fn len(&self) -> usize {
-           self.handle.g_map_size()
+           self.handle.lock().unwrap().g_map_size()
        }
 
        /// Applies a function to the values corresponding to the key, and returns the result.
@@ -463,14 +443,14 @@ pub mod srmap {
            K: Hash + Eq,
            F: FnOnce(&[V]) -> T,
        {
-           self.handle.get(key, uid).map(move |v| then(&*v))
+           self.handle.lock().unwrap().get(key, uid).map(move |v| then(&*v))
        }
 
        fn with_handle<F, T>(&self, f: F) -> Option<T>
        where
           F: FnOnce(&SRMap<K, V, M>) -> T,
        {
-           let res = Some(f(&self.handle));
+           let res = Some(f(&self.handle.lock().unwrap()));
            res
        }
 
@@ -479,7 +459,7 @@ pub mod srmap {
        where
            F: FnMut(&K, &[V]),
        {
-           let res = self.handle.get_all(uid).unwrap();
+           let res = self.handle.lock().unwrap().get_all(uid).unwrap();
            let mut inner = Vec::new();
            for (k, v) in &res {
                let mut inn = Vec::new();
@@ -494,7 +474,7 @@ pub mod srmap {
        }
 
        pub fn contains_key(&self, key: &K, uid: usize) -> bool {
-           let res = self.handle.get(key, uid);
+           let res = self.handle.lock().unwrap().get(key, uid);
            match res {
                Some(r) => true,
                None => false
@@ -515,8 +495,7 @@ pub mod srmap {
        V: Clone + Eq + std::fmt::Debug + Hash + evmap::ShallowCopy,
        M: Clone,
     {
-        let map = SRMap::<K,V,M>::new(meta_init);
-        // let r_handle = new_read(map.clone());
+        let map = Arc::new(Mutex::new(SRMap::<K,V,M>::new(meta_init)));
         let w_handle = new_write(map);
         (w_handle.clone(), w_handle)
     }
@@ -544,8 +523,11 @@ fn bench_insert_throughput(b: &mut Bencher) {
 
 #[bench]
 fn bench_insert_multival(b: &mut Bencher) {
+    use time::{Duration, PreciseTime};
+
     let uid1: usize = 0 as usize;
     let uid2: usize = 1 as usize;
+    let uid3: usize = 2 as usize;
 
     let (_r, mut w) = srmap::construct::<String, String, Option<i32>>(None);
 
@@ -556,10 +538,43 @@ fn bench_insert_multival(b: &mut Bencher) {
     let k = "x".to_string();
 
     let mut i = 0;
-    b.iter(|| {
-        w.insert(k.clone(), format!("v{}", i), 0);
+    let mut avg = Duration::nanoseconds(0);
+    // global map updates
+    while i < 1000 {
+        let start = PreciseTime::now();
+        w.insert(k.clone(), format!("v{}", i), uid1);
+        let delta = start.to(PreciseTime::now());
         i += 1;
-    });
+        avg = (avg + delta);
+    }
+    let num_avg = avg.num_nanoseconds().unwrap() / i;
+    println!("avg time: {:?}", num_avg.clone());
+
+    // values in global map, bitmap updates
+    let mut i = 0;
+    let mut avg = Duration::nanoseconds(0);
+    while i < 1000 {
+        let start = PreciseTime::now();
+        w.insert(k.clone(), format!("v{}", i), uid2);
+        let delta = start.to(PreciseTime::now());
+        i += 1;
+        avg = (avg + delta);
+    }
+    let num_avg = avg.num_nanoseconds().unwrap() / i;
+    println!("avg time: {:?}", num_avg.clone());
+
+    // not in global map, umap updates
+    let mut i = 0;
+    let mut avg = Duration::nanoseconds(0);
+    while i < 1000 {
+        let start = PreciseTime::now();
+        w.insert(k.clone(), format!("{}", i), uid3);
+        let delta = start.to(PreciseTime::now());
+        i += 1;
+        avg = (avg + delta);
+    }
+    let num_avg = avg.num_nanoseconds().unwrap() / i;
+    println!("avg time: {:?}", num_avg.clone());
 }
 
 

@@ -6,8 +6,6 @@ fn setup() -> (srmap::srmap::WriteHandle<String, String, Option<i32>>,
     let uid1: usize = 0 as usize;
     let uid2: usize = 1 as usize;
 
-    // let mut map = srmap::srmap::SRMap::<String, i32>::new();
-
     let (r, mut w) = srmap::srmap::construct::<String, String, Option<i32>>(None);
 
     // create two users
@@ -24,18 +22,35 @@ fn it_works() {
     let v2 = "x2".to_string();
     let v3 = "x3".to_string();
 
+    let (r, mut w) = setup();
+
     let uid1: usize = 0 as usize;
     let uid2: usize = 1 as usize;
 
-    let (r, mut w) = setup();
-
     w.insert(k.clone(), v.clone(), uid1.clone());
-    let v = r.get_and(&k, |rs| { rs.iter().any(|r| *r == "x".to_string()) }, uid1.clone()).unwrap();
-    println!("k: {:?} v: {:?}", k.clone(), v.clone());
+    w.insert(k.clone(), v.clone(), uid1.clone());
+    w.insert(k.clone(), v.clone(), uid2.clone());
+    w.insert(k.clone(), v.clone(), uid2.clone());
+    // w.insert(k.clone(), v.clone(), uid2.clone());
+
+    w.insert(k.clone(), v2.clone(), uid2.clone());
+
+    let v_res = r.get_and(&k, |rs| { rs.iter().any(|r| *r == "x".to_string()) }, uid1.clone()).unwrap();
+
+    println!("V: {:?}", v_res.clone());
+
+    let v_ = r.get_and(&k, |rs| { rs.iter().any(|r| *r == "x".to_string()) }, uid2.clone()).unwrap();
+    println!("V2: {:?}", v_.clone());
+
+    let v2 = r.get_and(&k, |rs| { rs.iter().any(|r| *r == "x2".to_string()) }, uid2.clone()).unwrap();
+
+    println!("k: {:?} v: {:?} uid {:?}", k.clone(), v.clone(), uid1.clone());
+    println!("k: {:?} v: {:?} uid {:?}", k.clone(), v_.clone(), uid2.clone());
+    println!("k: {:?} v: {:?} uid {:?}", k.clone(), v2.clone(), uid2.clone());
 
     // w.insert(k.clone(), v3.clone(), uid1.clone());
     // w.insert(k.clone(), v.clone(), uid2.clone());
-    //
+
     // w.insert(k.clone(), v2.clone(), uid2.clone());
     // println!("After overlapping insert: {:?}", lock.read().unwrap());
     //
