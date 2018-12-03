@@ -1,6 +1,7 @@
 #![feature(trivial_bounds)]
 #![feature(extern_prelude)]
 #![feature(test)]
+#![feature(try_from)]
 
 #[macro_use]
 extern crate slog;
@@ -8,6 +9,14 @@ extern crate slog_term;
 extern crate evmap;
 extern crate test;
 extern crate time;
+pub mod data;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+extern crate chrono;
+extern crate arccstr;
+extern crate nom_sql;
+extern crate rand;
 
 use test::Bencher;
 
@@ -31,6 +40,8 @@ pub mod srmap {
     use std::iter::FromIterator;
     use std::rc::Rc;
     use std::sync::Mutex;
+    pub use data::{DataType, Datas, Modification, Operation, Record, Records, TableOperation};
+
 
     // SRMap inner structure
     pub struct SRMap<K, V, M>
@@ -76,7 +87,7 @@ pub mod srmap {
                 g_records: 0,
                 largest: 0 as usize,
                 log: logger,
-                initialized: false
+                initialized: false,
             }
         }
 
@@ -110,8 +121,9 @@ pub mod srmap {
             let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
 
             b_map_w.flush();
-
+            println!("inserting v: {:?}", v.clone());
             if (uid == (0 as usize)) {
+                // println!("adding to global");
                 // Add record to existing set of values if it exists, otherwise create a new set
                 // let mut g_map_w = &mut self.g_map_w.lock().unwrap();
                 // let mut b_map_w = &mut self.b_map_w.lock().unwrap();
@@ -173,6 +185,7 @@ pub mod srmap {
                         }
 
                         if found {
+                            println!("flipping bit");
                             bmap[count][uid] = 1 as usize;
                             let bmkey = (k.clone(), val.clone());
                             b_map_w.clear(bmkey.clone());
@@ -182,6 +195,7 @@ pub mod srmap {
                             // println!("updated bitmap: {:?}", bmap.clone());
                             b_map_w.refresh();
                         } else {
+                            println!("INSERTING INTO UMAP");
                             match u_map.get_mut(&k){
                                 Some(vec) => vec.push(val.clone()),
                                 None => { let mut new_vec = Vec::new(); new_vec.push(val.clone()); }
@@ -521,60 +535,99 @@ fn bench_insert_throughput(b: &mut Bencher) {
     });
 }
 
+use data::DataType;
+fn get_posts(num: usize) -> Vec<Vec<DataType>> {
+    let mut rng = rand::thread_rng();
+    let mut records : Vec<Vec<DataType>> = Vec::new();
+    for i in 0..num {
+        let pid = i.into();
+        let author = (1 as usize).into();
+        let cid = (0 as usize).into();
+        let content : DataType = format!("post #{}", i).into();
+        let private = (0 as usize).into();
+        let anon = 1.into();
+        records.push(vec![pid, cid, author, content, private, anon]);
+    }
+    records
+}
+
+
+fn get_private_posts(num: usize, uid: usize) -> Vec<Vec<DataType>> {
+    let mut rng = rand::thread_rng();
+    let mut records : Vec<Vec<DataType>> = Vec::new();
+    for i in 0..num {
+        let pid = i.into();
+        let author = (uid.clone() as usize).into();
+        let cid = (0 as usize).into();
+        let content : DataType = format!("post #{}", i).into();
+        let private = (0 as usize).into();
+        let anon = 1.into();
+        records.push(vec![pid, cid, author, content, private, anon]);
+    }
+    records
+}
+
 #[bench]
 fn bench_insert_multival(b: &mut Bencher) {
     use time::{Duration, PreciseTime};
+    use rand;
+    use rand::Rng;
+    pub use data::{DataType, Datas, Modification, Operation, Record, Records, TableOperation};
 
-    let uid1: usize = 0 as usize;
-    let uid2: usize = 1 as usize;
-    let uid3: usize = 2 as usize;
+    let (_r, mut w) = srmap::construct::<DataType, Vec<DataType>, Option<i32>>(None);
 
-    let (_r, mut w) = srmap::construct::<String, String, Option<i32>>(None);
+    let num_users = 100;
+    let num_posts = 1000;
+    let num_private = (((num_posts as f32) * 0.0) as usize); // private per user
 
-    // create two users
-    w.add_user(uid1);
-    w.add_user(uid2);
+    // create users
+    let mut j = 0;
+    while j < num_users {
+        w.add_user(j as usize);
+        j += 1;
+    }
 
-    let k = "x".to_string();
-
-    let mut i = 0;
+    // add records to global map
+    let k : DataType = "x".to_string().into();
     let mut avg = Duration::nanoseconds(0);
-    // global map updates
-    while i < 1000 {
+
+    let mut recs = get_posts(num_posts as usize);
+    for i in recs {
         let start = PreciseTime::now();
-        w.insert(k.clone(), format!("v{}", i), uid1);
+        w.insert(k.clone(), i, 0 as usize);
         let delta = start.to(PreciseTime::now());
-        i += 1;
         avg = (avg + delta);
     }
-    let num_avg = avg.num_nanoseconds().unwrap() / i;
-    println!("avg time: {:?}", num_avg.clone());
 
-    // values in global map, bitmap updates
-    let mut i = 0;
+    // update bitmaps for users sharing global values
     let mut avg = Duration::nanoseconds(0);
-    while i < 1000 {
-        let start = PreciseTime::now();
-        w.insert(k.clone(), format!("v{}", i), uid2);
-        let delta = start.to(PreciseTime::now());
-        i += 1;
-        avg = (avg + delta);
+    for j in 1..num_users + 1 {
+        // insert public posts
+        let mut recs = get_posts(num_posts as usize);
+        for i in recs {
+            w.insert(k.clone(), i, j as usize);
+        }
+        // insert private posts
+        let mut recs = get_private_posts(num_private as usize, j as usize);
+        for i in recs {
+            w.insert(k.clone(), i, j as usize);
+        }
     }
-    let num_avg = avg.num_nanoseconds().unwrap() / i;
-    println!("avg time: {:?}", num_avg.clone());
+    // let num_avg = avg.num_nanoseconds().unwrap() / i;
+    // println!("avg time: {:?}", num_avg.clone());
 
     // not in global map, umap updates
-    let mut i = 0;
-    let mut avg = Duration::nanoseconds(0);
-    while i < 1000 {
-        let start = PreciseTime::now();
-        w.insert(k.clone(), format!("{}", i), uid3);
-        let delta = start.to(PreciseTime::now());
-        i += 1;
-        avg = (avg + delta);
-    }
-    let num_avg = avg.num_nanoseconds().unwrap() / i;
-    println!("avg time: {:?}", num_avg.clone());
+    // let mut i = 0;
+    // let mut avg = Duration::nanoseconds(0);
+    // while i < 1000 {
+    //     let start = PreciseTime::now();
+    //     w.insert(k.clone(), format!("{}", i), uid3);
+    //     let delta = start.to(PreciseTime::now());
+    //     i += 1;
+    //     avg = (avg + delta);
+    // }
+    // let num_avg = avg.num_nanoseconds().unwrap() / i;
+    // println!("avg time: {:?}", num_avg.clone());
 }
 
 

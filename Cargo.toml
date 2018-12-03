@@ -17,3 +17,9 @@ evmap = { path = "/Users/alanamarzoev/Desktop/multidb/rust-evmap" }
 slog = "2.2.2"
 slog-term = "2.4.0"
 time = "0.1"
+nom-sql = { git = "https://github.com/ms705/nom-sql.git", rev = "791c0f5117b6e02c1e3f146cc4a2689ef7da7a54" }
+arccstr = "1.2.0"
+chrono = { version = "0.4.0", features = ["serde"] }
+serde_derive = "1.0.8"
+serde = { version = "1.0.8", features = ["rc"] }
+rand = "0.5.0"
