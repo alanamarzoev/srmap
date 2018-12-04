@@ -121,9 +121,9 @@ pub mod srmap {
             let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
 
             b_map_w.flush();
-            println!("inserting v: {:?}", v.clone());
+            // println!("inserting v: {:?}", v.clone());
             if (uid == (0 as usize)) {
-                // println!("adding to global");
+                // println!("global insert");
                 // Add record to existing set of values if it exists, otherwise create a new set
                 // let mut g_map_w = &mut self.g_map_w.lock().unwrap();
                 // let mut b_map_w = &mut self.b_map_w.lock().unwrap();
@@ -151,6 +151,7 @@ pub mod srmap {
                 // println!("num grecords: {:?}", self.g_records.clone());
 
             } else {
+                // println!("in srmap insert else block");
                 // println!("here... ");
                 // If value exists in global map and isn't accessible -> flip a bit.
                 // Otherwise, add the value to the user's map.
@@ -185,7 +186,7 @@ pub mod srmap {
                         }
 
                         if found {
-                            println!("flipping bit");
+                            // println!("flipping bit");
                             bmap[count][uid] = 1 as usize;
                             let bmkey = (k.clone(), val.clone());
                             b_map_w.clear(bmkey.clone());
@@ -195,10 +196,21 @@ pub mod srmap {
                             // println!("updated bitmap: {:?}", bmap.clone());
                             b_map_w.refresh();
                         } else {
-                            println!("INSERTING INTO UMAP");
+                            // println!("INSERTING INTO UMAP");
+                            let mut add = false;
+                            let mut added_vec = None;
                             match u_map.get_mut(&k){
-                                Some(vec) => vec.push(val.clone()),
-                                None => { let mut new_vec = Vec::new(); new_vec.push(val.clone()); }
+                                Some(vec) => { vec.push(val.clone()); },
+                                None => {
+                                    // println!("creating new vec in umap");
+                                    let mut new_vec = Vec::new();
+                                    new_vec.push(val.clone());
+                                    add = true;
+                                    added_vec = Some(new_vec);
+                                }
+                            }
+                            if add {
+                                u_map.insert(k.clone(), added_vec.unwrap());
                             }
                         }
                     }
@@ -541,7 +553,7 @@ fn get_posts(num: usize) -> Vec<Vec<DataType>> {
     let mut records : Vec<Vec<DataType>> = Vec::new();
     for i in 0..num {
         let pid = i.into();
-        let author = (1 as usize).into();
+        let author = (0 as usize).into();
         let cid = (0 as usize).into();
         let content : DataType = format!("post #{}", i).into();
         let private = (0 as usize).into();
@@ -559,7 +571,7 @@ fn get_private_posts(num: usize, uid: usize) -> Vec<Vec<DataType>> {
         let pid = i.into();
         let author = (uid.clone() as usize).into();
         let cid = (0 as usize).into();
-        let content : DataType = format!("post #{}", i).into();
+        let content : DataType = format!("post #{}", (i + uid)).into();
         let private = (0 as usize).into();
         let anon = 1.into();
         records.push(vec![pid, cid, author, content, private, anon]);
@@ -577,8 +589,8 @@ fn bench_insert_multival(b: &mut Bencher) {
     let (_r, mut w) = srmap::construct::<DataType, Vec<DataType>, Option<i32>>(None);
 
     let num_users = 100;
-    let num_posts = 1000;
-    let num_private = (((num_posts as f32) * 0.0) as usize); // private per user
+    let num_posts = 9000;
+    let num_private = 1000;
 
     // create users
     let mut j = 0;
@@ -602,17 +614,25 @@ fn bench_insert_multival(b: &mut Bencher) {
     // update bitmaps for users sharing global values
     let mut avg = Duration::nanoseconds(0);
     for j in 1..num_users + 1 {
-        // insert public posts
+        // insert public posts for each user
         let mut recs = get_posts(num_posts as usize);
         for i in recs {
             w.insert(k.clone(), i, j as usize);
         }
-        // insert private posts
+        // insert private posts for each user
         let mut recs = get_private_posts(num_private as usize, j as usize);
         for i in recs {
             w.insert(k.clone(), i, j as usize);
         }
     }
+
+    for j in 0..num_users + 1 {
+        // insert public posts for each user
+        let mut res = w.get_and(&k.clone(), |s| s.len().clone(), j as usize);
+        // println!("USER: {:?}, NUM_RECS: {:?}", j, res.clone());
+    }
+
+
     // let num_avg = avg.num_nanoseconds().unwrap() / i;
     // println!("avg time: {:?}", num_avg.clone());
 
@@ -630,28 +650,32 @@ fn bench_insert_multival(b: &mut Bencher) {
     // println!("avg time: {:?}", num_avg.clone());
 }
 
-
-#[bench]
-fn bench_get_throughput(b: &mut Bencher) {
-    let uid1: usize = 0 as usize;
-    let uid2: usize = 1 as usize;
-
-    let (r, mut w) = srmap::construct::<String, String, Option<i32>>(None);
-
-    // create two users
-    w.add_user(uid1);
-    w.add_user(uid2);
-
-    let k = "x".to_string();
-    let v = "x".to_string();
-
-    w.insert(k.clone(), v.clone(), uid1);
-
-    b.iter(|| {
-        r.get_and(&k, |_| false, uid1);
-    });
-
-    b.iter(|| {
-        r.get_and(&k, |_| false, uid2);
-    });
-}
+//
+// #[bench]
+// fn bench_get_throughput(b: &mut Bencher) {
+//     let (_r, mut w) = srmap::construct::<DataType, Vec<DataType>, Option<i32>>(None);
+//
+//     let num_users = 10;
+//     let num_posts = 9000;
+//     let num_private = 1000;
+//
+//     // create users
+//     let mut j = 0;
+//     while j < num_users {
+//         w.add_user(j as usize);
+//         j += 1;
+//     }
+//
+//     let k = "x".to_string();
+//     let v = "x".to_string();
+//
+//     w.insert(k.clone(), v.clone(), uid1);
+//
+//     b.iter(|| {
+//         r.get_and(&k, |_| false, uid1);
+//     });
+//
+//     b.iter(|| {
+//         r.get_and(&k, |_| false, uid2);
+//     });
+// }
