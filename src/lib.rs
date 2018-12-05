@@ -58,7 +58,7 @@ pub mod srmap {
                 evmap::WriteHandle<(K, V), Vec<usize>>,
             )>,
         >,
-        pub u_map: RefCell<Vec<Arc<RwLock<HashMap<K, Vec<V>>>>>>,
+        pub u_map: Arc<RwLock<HashMap<K, Vec<V>>>>,
         pub id_store: Arc<RwLock<HashMap<usize, usize>>>,
         pub meta: M,
         largest: usize,
@@ -100,13 +100,11 @@ pub mod srmap {
             let logger = super::logger_pls();
             let (g_map_r, mut g_map_w) = evmap::new();
             let (b_map_r, mut b_map_w) = evmap::new();
-            let mut u_map = Vec::new();
-            u_map.push(Arc::new(RwLock::new(HashMap::new())));
             SRMap {
                 g_map_r: g_map_r,
                 global_w: Arc::new(Mutex::new((g_map_w, b_map_w))),
                 b_map_r: b_map_r,
-                u_map: RefCell::new(u_map),
+                u_map: Arc::new(RwLock::new(HashMap::new())),
                 id_store: Arc::new(RwLock::new(HashMap::new())),
                 meta: init_m,
                 g_records: 0,
@@ -178,7 +176,7 @@ pub mod srmap {
                 // If value exists in global map and isn't accessible -> flip a bit.
                 // Otherwise, add the value to the user's map.
 
-                let mut u_map = *self.u_map.get_mut()[uid].write().unwrap();
+                let mut u_map = self.u_map.write().unwrap();
                 let mut added = false;
                 let mut same_as_global = self.g_map_r.get_and(&k.clone(), |vs| {
                     for val in &v {
@@ -251,7 +249,7 @@ pub mod srmap {
                 uid = id.unwrap();
             }
 
-            let mut u_map = *self.u_map.get_mut()[uid].write().unwrap();
+            let mut u_map = self.u_map.write().unwrap();
             // println!("acquired umap");
 
             let mut v_vec = u_map.get_mut(k);
@@ -298,7 +296,7 @@ pub mod srmap {
             }
             let uid = uid.unwrap();
 
-            let mut u_map = *self.u_map.get_mut()[uid].write().unwrap();
+            let mut u_map = self.u_map.write().unwrap();
             u_map.remove(k);
 
             self.g_map_r.get_and(&k, |set| {
@@ -322,10 +320,6 @@ pub mod srmap {
             }
 
             self.initialized = true;
-            // create user map
-            let mut um = Arc::new(RwLock::new(HashMap::new()));
-            self.u_map.get_mut().push(um);
-
             let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
 
             // println!("Adding umap for user with uid: {:?} internal: {:?}, len of umap vec: {:?}", uid.clone(), self.largest.clone(), self.u_map.len());
@@ -354,6 +348,7 @@ pub mod srmap {
             Some(self.largest.clone()) // return internal id
         }
 
+
         // Get all records that a given user has access to
         pub fn get_all(&self, id: usize) -> Option<Vec<(K, V)>> {
             let mut id = self.get_id(id.clone());
@@ -364,7 +359,7 @@ pub mod srmap {
                 uid = id.unwrap();
             }
 
-            let mut u_map = self.u_map.get_mut()[uid].write().unwrap();
+            let mut u_map = self.u_map.write().unwrap();
             let mut to_return : Vec<(K, V)> = Vec::new();
 
             for (k, v) in u_map.iter() {
@@ -675,6 +670,24 @@ fn bench_insert_multival(b: &mut Bencher) {
     // }
     // let num_avg = avg.num_nanoseconds().unwrap() / i;
     // println!("avg time: {:?}", num_avg.clone());
+}
+
+#[bench]
+fn basic_clone_test(b: &mut Bencher) {
+
+    let (r, mut w) = srmap::construct::<DataType, Vec<DataType>, Option<i32>>(None);
+
+    // add records to global map
+    let k : DataType = "x".to_string().into();
+
+    let mut recs = get_posts(2 as usize);
+    for i in recs {
+        w.insert(k.clone(), i, 0 as usize);
+    }
+    let mut res_vec = Vec::new();
+    r.get_and(&k, |s| res_vec.push(s.len()), 0 as usize); 
+    println!("{:?}", res_vec);
+
 }
 
 //
