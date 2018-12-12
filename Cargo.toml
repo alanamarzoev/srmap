@@ -10,7 +10,8 @@ license = "MIT/Apache-2.0"
 debug = true
 
 [dependencies]
-evmap = { path = "/Users/alanamarzoev/Desktop/multidb/rust-evmap" }
+# evmap = { path = "/Users/alanamarzoev/Desktop/multidb/rust-evmap" }
+evmap = { git = "https://github.com/jonhoo/rust-evmap.git"}
 
 # uncomment to turn on all logging
 # slog = { version = "2.2.2", features = ["max_level_trace", "release_max_level_trace"] }

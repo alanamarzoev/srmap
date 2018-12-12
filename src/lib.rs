@@ -188,7 +188,7 @@ pub mod srmap {
 
             // global map insert.
             if (uid == (0 as usize)) {
-                println!("global insert");
+                // println!("global insert");
                 for val in v {
 
                     self.g_records += 1;
@@ -248,7 +248,7 @@ pub mod srmap {
 
                         if found {
                             // give access
-                            println!("flipping bit");
+                            // println!("flipping bit");
                             bmap[count] = update_access(bmap[count].clone().to_vec(), uid, true);
 
                             let bmkey = (k.clone(), val.clone());
@@ -262,7 +262,7 @@ pub mod srmap {
                             b_map_w.refresh();
 
                         } else {
-                            println!("umap insert");
+                            // println!("umap insert");
                             // insert into umap
                             let mut add = false;
                             let mut added_vec = None;
@@ -633,7 +633,7 @@ fn bench_insert_multival(b: &mut Bencher) {
 
     let (_r, mut w) = srmap::construct::<DataType, Vec<DataType>, Option<i32>>(None);
 
-    let num_users = 1000;
+    let num_users = 10;
     let num_posts = 1000;
     let num_private = 0;
 
