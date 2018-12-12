@@ -646,41 +646,41 @@ impl Into<Records> for Vec<(Vec<DataType>, bool)> {
 }
 
 pub trait SizeOf {
-    fn deep_size_of(&self) -> u64;
-    fn size_of(&self) -> u64;
+    fn deep_size_of(&self) -> usize;
+    fn size_of(&self) -> usize;
 }
 
 impl SizeOf for DataType {
-    fn deep_size_of(&self) -> u64 {
+    fn deep_size_of(&self) -> usize {
         use std::mem::size_of_val;
 
         let inner = match *self {
-            DataType::Text(ref t) => size_of_val(t) as u64 + t.to_bytes().len() as u64,
-            _ => 0u64,
+            DataType::Text(ref t) => size_of_val(t) as usize + t.to_bytes().len() as usize,
+            _ => 0usize,
         };
 
         self.size_of() + inner
     }
 
-    fn size_of(&self) -> u64 {
+    fn size_of(&self) -> usize {
         use std::mem::size_of;
 
         // doesn't include data if stored externally
-        size_of::<DataType>() as u64
+        size_of::<DataType>() as usize
     }
 }
 
 impl SizeOf for Vec<DataType> {
-    fn deep_size_of(&self) -> u64 {
+    fn deep_size_of(&self) -> usize {
         use std::mem::size_of_val;
 
-        size_of_val(self) as u64 + self.iter().fold(0u64, |acc, d| acc + d.deep_size_of())
+        size_of_val(self) as usize + self.iter().fold(0usize, |acc, d| acc + d.deep_size_of())
     }
 
-    fn size_of(&self) -> u64 {
+    fn size_of(&self) -> usize {
         use std::mem::{size_of, size_of_val};
 
-        size_of_val(self) as u64 + size_of::<DataType>() as u64 * self.len() as u64
+        size_of_val(self) as usize + size_of::<DataType>() as usize * self.len() as usize
     }
 }
 //
@@ -1043,12 +1043,12 @@ impl SizeOf for Vec<DataType> {
 //         // DataType should always use 16 bytes itself
 //         assert_eq!(size_of::<DataType>(), 16);
 //         assert_eq!(size_of_val(&txt), 16);
-//         assert_eq!(size_of_val(&txt) as u64, txt.size_of());
+//         assert_eq!(size_of_val(&txt) as usize, txt.size_of());
 //         assert_eq!(txt.deep_size_of(), txt.size_of() + 8 + 2); // DataType + ArcCStr's ptr + 2 chars
 //         assert_eq!(size_of_val(&shrt), 16);
 //         assert_eq!(size_of_val(&long), 16);
 //         assert_eq!(size_of_val(&time), 16);
-//         assert_eq!(size_of_val(&time) as u64, time.size_of());
+//         assert_eq!(size_of_val(&time) as usize, time.size_of());
 //         assert_eq!(time.deep_size_of(), 16); // DataType + inline NaiveDateTime
 //
 //         assert_eq!(size_of_val(&rec), 24);

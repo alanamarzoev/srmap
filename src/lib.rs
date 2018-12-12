@@ -90,6 +90,45 @@ pub mod srmap {
         }
     }
 
+    pub fn update_access(bitmap: Vec<usize>, uid: usize, add: bool) -> Vec<usize> {
+        let index = uid / 64;
+        let offset = uid % 64;
+        let bmap_len = bitmap.len();
+        let mut updated_map = bitmap;
+
+        if bmap_len < index {
+            // extend the bitmap lazily to accommodate all users.
+            if add {
+                let num_new_elements = offset - (bmap_len - 1);
+                for el in 0..num_new_elements {
+                    updated_map.push(0);
+                }
+            }
+            // if this was an access retraction and that portion of the bitmap never existed,
+            // then there wasn't ever access to begin with. this will change when we do
+            // compression.
+        }
+
+        let access = 1 << offset;
+        updated_map[index] = updated_map[index] ^ access; // or do i use an or and??? check this
+
+        return updated_map
+    }
+
+    pub fn get_access(bitmap: Vec<usize>, uid: usize) -> bool {
+        let index = uid / 64;
+        let offset = uid % 64;
+        let bmap_len = bitmap.len();
+
+        let mask = 1 << offset;
+        let res = bitmap[index] & mask;
+        if res == 0 {
+            return true
+        } else {
+            return false
+        }
+    }
+
     impl<K, V, M> SRMap<K, V, M>
     where
         K: Eq + Hash + Clone + std::fmt::Debug,
@@ -144,38 +183,29 @@ pub mod srmap {
             let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
 
             b_map_w.flush();
-            // println!("inserting v: {:?}", v.clone());
+
+            // global map insert.
             if (uid == (0 as usize)) {
-                // println!("global insert");
-                // Add record to existing set of values if it exists, otherwise create a new set
-                // let mut g_map_w = &mut self.g_map_w.lock().unwrap();
-                // let mut b_map_w = &mut self.b_map_w.lock().unwrap();
                 for val in v {
-                    // println!("here5");
+
                     self.g_records += 1;
+
                     // Add (index, value) to global map
                     g_map_w.insert(k.clone(), val.clone());
-                    // Create new bitmap for this value
+
+                    // create new bitmap! no users start off having access except for the global
+                    // universe.
                     let mut bit_map = Vec::new();
-                    for x in 0..self.largest + 1 {
-                        if x == 0 {
-                            bit_map.push(1 as usize);
-                        } else {
-                            bit_map.push(0 as usize);
-                        }
-                    }
+                    bit_map.push(0);
 
                     b_map_w.insert((k.clone(), val.clone()), bit_map);
                 }
                 g_map_w.refresh();
                 b_map_w.refresh();
-                // println!("num grecords: {:?}", self.g_records.clone());
 
             } else {
-                // println!("in srmap insert else block");
-                // If value exists in global map and isn't accessible -> flip a bit.
-                // Otherwise, add the value to the user's map.
-
+                // if value exists in the global map, remove this user's name from restricted access list.
+                // otherwise, add record to the user's umap.
                 let mut u_map = self.u_map.write().unwrap();
                 let mut added = false;
                 let mut same_as_global = self.g_map_r.get_and(&k.clone(), |vs| {
@@ -184,41 +214,54 @@ pub mod srmap {
                         let mut count = 0 as usize;
                         let mut found = false;
                         let mut bmap : Vec<Vec<usize>> = Vec::new();
-                        // let mut add_user = false;
-                        // println!("VS len : {:?}", vs.len().clone());
+
+                        // attempting to find a match for this value in the global map
+                        // _that this user does not yet have access to_. if this is successful,
+                        // indicate that the value has been found, and update access.
+                        // if not successful, insert into umap. repeat for all values.
                         for v in vs {
                             if *v == *val && count >= last_seen && found == false {
                                 self.b_map_r.get_and(&(k.clone(), val.clone()), |s| {
-                                    //println!("s: {:?}", s.clone());
-                                //                                                       println!("count: {:?} uid: {:?}", count.clone(), uid.clone());
-                                //                                                       println!("k: {:?} v: {:?}", k.clone(), v.clone());
-                                                                                      if s[count][uid] == 0 { found = true;
-                                                                                                              bmap = s.to_vec().clone();
-                                                                                                             }
-                                                                                                             else { last_seen = count; }});
-                                if found {
-                                    // println!("breaking at count {:?}", count.clone());
-                                    break;
-                                    // println!("shouldn't happen");
-                                } else {
-                                    count = count + 1 as usize;
+                                    // if user doesn't yet have access to a record with a matching
+                                    // value in the global map, then update this bitmap to grant
+                                    // access. otherwise, add to user map.
+
+                                    match get_access(s[count].clone().to_vec(), uid) {
+                                        true => {
+                                            found = true;
+                                            bmap = s.clone().to_vec();
+                                        },
+                                        false => {
+                                            last_seen = count;
+                                        }
+                                    }
+
+                                    if !found {
+                                        count = count + 1 as usize;
+                                    }
                                 }
-                            }
+                            );}
                         }
 
                         if found {
-                            // println!("flipping bit");
-                            bmap[count][uid] = 1 as usize;
+                            // give access
+                            bmap[count] = update_access(bmap[count].clone().to_vec(), uid, true);
+
                             let bmkey = (k.clone(), val.clone());
                             b_map_w.clear(bmkey.clone());
+
+                            // update the shared bmap
                             for v in &bmap {
                                 b_map_w.insert(bmkey.clone(), v.clone());
                             }
+
                             b_map_w.refresh();
+
                         } else {
-                            // println!("INSERTING INTO UMAP");
+                            // insert into umap
                             let mut add = false;
                             let mut added_vec = None;
+
                             match u_map.get_mut(&k){
                                 Some(vec) => { vec.push(val.clone()); },
                                 None => {
@@ -229,6 +272,7 @@ pub mod srmap {
                                     added_vec = Some(new_vec);
                                 }
                             }
+
                             if add {
                                 u_map.insert(k.clone(), added_vec.unwrap());
                             }
@@ -239,10 +283,9 @@ pub mod srmap {
         }
 
 
-        pub fn get(&self, k: &K, id: usize) -> Option<Vec<V>> { //TODO optimize this!! will prob be slow
+        pub fn get(&self, k: &K, id: usize) -> Option<Vec<V>> {
             let mut id = self.get_id(id.clone());
             let mut uid = 0;
-            // println!("in get");
             if id == None {
                 return None
             } else {
@@ -250,9 +293,8 @@ pub mod srmap {
             }
 
             let mut u_map = self.u_map.write().unwrap();
-            // println!("acquired umap");
-
             let mut v_vec = u_map.get_mut(k);
+
             let mut res_list : Vec<V>;
             if v_vec != None {
                 res_list = v_vec.unwrap().clone();
@@ -260,15 +302,13 @@ pub mod srmap {
                 res_list = Vec::new();
             }
 
-            // println!("call to evmap get_and");
             self.g_map_r.get_and(&k, |set| {
                 for v in set {
-                    // println!("call to bmap srmap get_and");
-                    let access = self
+                    let bmap = self
                         .b_map_r
                         .get_and(&(k.clone(), v.clone()), |s| s[0].clone())
-                        .unwrap()[uid];
-                    if access == 1 as usize {
+                        .unwrap();
+                    if get_access(bmap, uid) {
                         res_list.push(v.clone());
                     }
                 }
@@ -278,15 +318,14 @@ pub mod srmap {
             for x in res_list.iter() {
                 to_return.push(x.clone());
             }
-            // println!("about to return vec of records");
+
             if to_return.len() > 0 {
-                // println!("returning some");
                 return Some(to_return)
             } else {
-                // println!("returning none");
                 return None
             }
         }
+
 
         pub fn remove(&mut self, k: &K, id: usize) {
             let mut uid = self.get_id(id.clone());
@@ -305,13 +344,14 @@ pub mod srmap {
                     let mut bmap = self.b_map_r.get_and(bm_key, |s| s[0].clone());
                     match bmap {
                         Some(mut bm) => {
-                            bm[uid] = 0 as usize;
+                            bm = update_access(bm, uid, false);
                         }
                         None => {}
                     }
                 }
             });
         }
+
 
         pub fn add_user(&mut self, uid: usize) -> Option<usize> {
             // add to ID store
@@ -321,28 +361,6 @@ pub mod srmap {
 
             self.initialized = true;
             let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
-
-            // println!("Adding umap for user with uid: {:?} internal: {:?}, len of umap vec: {:?}", uid.clone(), self.largest.clone(), self.u_map.len());
-            b_map_w.refresh();
-
-            // add bitmap flag for this user in every global bitmap
-            let mut new_bm = Vec::new();
-            self.b_map_r.for_each(|k, v| { new_bm.push((k.clone(), v[0].clone())) }); // TODO Change to get all
-
-            for y in new_bm.iter() {
-                b_map_w.clear(y.0.clone());
-            }
-
-            // println!("adding user {:?} to {:?} record bms", uid.clone(), new_bm.len().clone());
-            for y in new_bm.iter() {
-                let mut kv = y.0.clone();
-                let mut v = y.1.clone();
-                v.push(0);
-                // println!("k: {:?} new bm: {:?}", kv.clone(), v.clone());
-                b_map_w.insert(kv.clone(), v.clone());
-
-            }
-            b_map_w.flush();
 
             self.id_store.write().unwrap().insert(uid.clone(), self.largest.clone());
             Some(self.largest.clone()) // return internal id
@@ -375,7 +393,8 @@ pub mod srmap {
             for (k, val) in buffer.iter() {
                 let bmkey = (k.clone(), val.clone());
                 let mut bmap = self.b_map_r.get_and(&bmkey, |s| s[0].clone()).unwrap();
-                if bmap[uid] == 1 as usize {
+
+                if get_access(bmap, uid) {
                     to_return.push(bmkey);
                 }
             }
@@ -685,7 +704,7 @@ fn basic_clone_test(b: &mut Bencher) {
         w.insert(k.clone(), i, 0 as usize);
     }
     let mut res_vec = Vec::new();
-    r.get_and(&k, |s| res_vec.push(s.len()), 0 as usize); 
+    r.get_and(&k, |s| res_vec.push(s.len()), 0 as usize);
     println!("{:?}", res_vec);
 
 }
