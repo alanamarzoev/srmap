@@ -119,6 +119,9 @@ pub mod srmap {
         let index = uid / 64;
         let offset = uid % 64;
         let bmap_len = bitmap.len();
+        if bmap_len <= index {
+            return false
+        }
 
         let mask = 1 << offset;
         let res = bitmap[index] & mask;
@@ -225,7 +228,7 @@ pub mod srmap {
                                     // if user doesn't yet have access to a record with a matching
                                     // value in the global map, then update this bitmap to grant
                                     // access. otherwise, add to user map.
-
+                                    let r = s[count].clone();
                                     match get_access(s[count].clone().to_vec(), uid) {
                                         true => {
                                             found = true;
@@ -265,7 +268,6 @@ pub mod srmap {
                             match u_map.get_mut(&k){
                                 Some(vec) => { vec.push(val.clone()); },
                                 None => {
-                                    // println!("creating new vec in umap");
                                     let mut new_vec = Vec::new();
                                     new_vec.push(val.clone());
                                     add = true;
@@ -629,9 +631,9 @@ fn bench_insert_multival(b: &mut Bencher) {
 
     let (_r, mut w) = srmap::construct::<DataType, Vec<DataType>, Option<i32>>(None);
 
-    let num_users = 100;
-    let num_posts = 9000;
-    let num_private = 1000;
+    let num_users = 500;
+    let num_posts = 1000;
+    let num_private = 0;
 
     // create users
     let mut j = 0;
@@ -691,23 +693,23 @@ fn bench_insert_multival(b: &mut Bencher) {
     // println!("avg time: {:?}", num_avg.clone());
 }
 
-#[bench]
-fn basic_clone_test(b: &mut Bencher) {
-
-    let (r, mut w) = srmap::construct::<DataType, Vec<DataType>, Option<i32>>(None);
-
-    // add records to global map
-    let k : DataType = "x".to_string().into();
-
-    let mut recs = get_posts(2 as usize);
-    for i in recs {
-        w.insert(k.clone(), i, 0 as usize);
-    }
-    let mut res_vec = Vec::new();
-    r.get_and(&k, |s| res_vec.push(s.len()), 0 as usize);
-    println!("{:?}", res_vec);
-
-}
+// #[bench]
+// fn basic_clone_test(b: &mut Bencher) {
+//
+//     let (r, mut w) = srmap::construct::<DataType, Vec<DataType>, Option<i32>>(None);
+//
+//     // add records to global map
+//     let k : DataType = "x".to_string().into();
+//
+//     let mut recs = get_posts(2 as usize);
+//     for i in recs {
+//         w.insert(k.clone(), i, 0 as usize);
+//     }
+//     let mut res_vec = Vec::new();
+//     r.get_and(&k, |s| res_vec.push(s.len()), 0 as usize);
+//     println!("{:?}", res_vec);
+//
+// }
 
 //
 // #[bench]
