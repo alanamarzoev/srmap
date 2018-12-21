@@ -15,7 +15,6 @@ pub mod srmap {
     use std::sync::Mutex;
     pub use data::{DataType, Datas, Modification, Operation, Record, Records, TableOperation};
 
-
     // Bitmap update functions
     pub fn update_access(bitmap: Vec<usize>, uid: usize, add: bool) -> Vec<usize> {
         let index = uid / 64;
@@ -73,13 +72,11 @@ pub mod srmap {
                 evmap::WriteHandle<(K, V), Vec<usize>>,
             )>,
         >,
-        pub u_map: Arc<RwLock<HashMap<K, Vec<V>>>>,
         pub id_store: Arc<RwLock<HashMap<usize, usize>>>,
         pub meta: M,
         largest: Arc<RwLock<usize>>,
         g_records: usize,
         // log: slog::Logger,
-        initialized: bool,
     }
 
 
@@ -97,10 +94,8 @@ pub mod srmap {
                 global_w: self.global_w.clone(),
                 id_store: self.id_store.clone(),
                 largest: self.largest.clone(),
-                u_map: self.u_map.clone(),
                 meta: self.meta.clone(),
                 g_records: self.g_records.clone(),
-                initialized: self.initialized.clone(),
                 // log: logger,
             }
         }
@@ -121,13 +116,11 @@ pub mod srmap {
                 g_map_r: g_map_r,
                 global_w: Arc::new(Mutex::new((g_map_w, b_map_w))),
                 b_map_r: b_map_r,
-                u_map: Arc::new(RwLock::new(HashMap::new())),
                 id_store: Arc::new(RwLock::new(HashMap::new())),
                 meta: init_m,
                 g_records: 0,
                 largest: Arc::new(RwLock::new(0 as usize)),
                 // log: logger,
-                initialized: false,
             }
         }
 
@@ -150,32 +143,32 @@ pub mod srmap {
         // the global universe. If it does, a bit will be flipped to indicate access.
         // If it doesn't exist in the global universe, the record is added to the user
         // universe.
-        pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize) {
+        pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize) -> bool {
             let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
-            println!("uid: {}", uid);
+            println!("in insert! id: {}", uid);
+
             // global map insert.
             if uid == 0 as usize {
-                println!("uid is 0 in insert");
-                for val in v {
+                for val in v.clone() {
                     self.g_records += 1;
 
                     // Add (index, value) to global map
                     g_map_w.insert(k.clone(), val.clone());
+                    println!("inserted k: {:?} v: {:?} into g_map", k.clone(), val.clone());
 
                     // create new bitmap! no users start off having access except for the global
                     // universe.
                     let mut bit_map = Vec::new();
                     bit_map.push(0);
-
                     b_map_w.insert((k.clone(), val.clone()), bit_map);
+
                 }
                 g_map_w.refresh();
                 b_map_w.refresh();
-
+                return true;
             } else {
                 // if value exists in the global map, remove this user's name from restricted access list.
                 // otherwise, add record to the user's umap.
-                let mut u_map = self.u_map.write().unwrap();
                 self.g_map_r.get_and(&k.clone(), |vs| {
                     for val in &v {
                         let mut last_seen = 0;
@@ -208,11 +201,11 @@ pub mod srmap {
                                     }
                                 }
                             );}
-                        }
+                        };
 
                         if found {
                             // give access
-                            // println!("flipping bit");
+                            println!("flipping bit...");
                             bmap[count] = update_access(bmap[count].clone().to_vec(), uid, true);
 
                             let bmkey = (k.clone(), val.clone());
@@ -224,44 +217,22 @@ pub mod srmap {
                             }
 
                             b_map_w.refresh();
-
-                        } else {
-                            // println!("umap insert");
-                            // insert into umap
-                            let mut add = false;
-                            let mut added_vec = None;
-
-                            match u_map.get_mut(&k){
-                                Some(vec) => { vec.push(val.clone()); },
-                                None => {
-                                    let mut new_vec = Vec::new();
-                                    new_vec.push(val.clone());
-                                    add = true;
-                                    added_vec = Some(new_vec);
-                                }
-                            }
-
-                            if add {
-                                u_map.insert(k.clone(), added_vec.unwrap());
-                            }
+                            println!("updated global!");
+                            return true;
                         }
-                    }
-                });
+
+                    };
+                println!("no global map updates. need to add to umap.");
+                return false;});
             }
+            println!("no global map updates. need to add to umap.");
+            return false;
         }
 
 
         pub fn get(&self, k: &K, uid: usize) -> Option<Vec<V>> {
-            let mut u_map = self.u_map.write().unwrap();
-            let v_vec = u_map.get_mut(k);
-
-            let mut res_list : Vec<V>;
-            if v_vec != None {
-                res_list = v_vec.unwrap().clone();
-            } else {
-                res_list = Vec::new();
-            }
-
+            println!("global call to get! by id {}", uid);
+            let mut res_list = Vec::new();
             self.g_map_r.get_and(&k, |set| {
                 for v in set {
                     let bmap = self
@@ -274,23 +245,22 @@ pub mod srmap {
                 }
             });
 
-            let mut to_return = Vec::new();
-            for x in res_list.iter() {
-                to_return.push(x.clone());
-            }
+            return Some(res_list);
 
-            if to_return.len() > 0 {
-                return Some(to_return)
-            } else {
-                return None
-            }
+            // let mut to_return = Vec::new();
+            // for x in res_list.iter() {
+            //     to_return.push(x.clone());
+            // }
+            //
+            // if to_return.len() > 0 {
+            //     return Some(to_return)
+            // } else {
+            //     return None
+            // }
         }
 
 
         pub fn remove(&mut self, k: &K, uid: usize) {
-            let mut u_map = self.u_map.write().unwrap();
-            u_map.remove(k);
-
             self.g_map_r.get_and(&k, |set| {
                 for v in set.iter() {
                     let bm_key = &(k.clone(), v.clone());
@@ -320,21 +290,13 @@ pub mod srmap {
 
         }
 
-
         // Get all records that a given user has access to
         pub fn get_all(&self, uid: usize) -> Option<Vec<(K, V)>> {
-            let u_map = self.u_map.write().unwrap();
-            let mut to_return : Vec<(K, V)> = Vec::new();
-
-            for (k, v) in u_map.iter() {
-                for val in v.iter() {
-                    to_return.push((k.clone(), val.clone()));
-                }
-            }
-
             let mut buffer = Vec::new();
-            self.g_map_r
-                .for_each(|k, v| buffer.push((k.clone(), v[0].clone())));
+
+            self.g_map_r.for_each(|k, v| buffer.push((k.clone(), v[0].clone())));
+
+            let mut to_return = Vec::new();
 
             for (k, val) in buffer.iter() {
                 let bmkey = (k.clone(), val.clone());
@@ -345,11 +307,7 @@ pub mod srmap {
                 }
             }
 
-            if to_return.len() > 0 {
-                return Some(to_return)
-            } else {
-                return None
-            }
+            return Some(to_return)
         }
     }
 }

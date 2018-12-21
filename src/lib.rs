@@ -25,6 +25,9 @@ use handle::handle::Handle;
 use inner::srmap::SRMap;
 
 use std::hash::Hash;
+use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
+
 pub use data::{DataType, Datas, Modification, Operation, Record, Records, TableOperation};
 
 
@@ -34,7 +37,8 @@ where
     V: Clone + Eq + std::fmt::Debug + Hash + evmap::ShallowCopy,
     M: Clone,
 {
-    Handle { handle: lock, iid: 0 }
+    let mut umap = Arc::new(RwLock::new(HashMap::new()));
+    Handle { handle: lock, iid: 0, umap: umap}
 }
 
 // Constructor for read/write handle tuple
@@ -46,6 +50,8 @@ where
 {
     let map = SRMap::<K,V,M>::new(meta_init);
     let mut w_handle = new(map.clone());
+    // adds user with uid 0...
     w_handle.add_user();
+    println!("constructed new srmap. handle has uid: {}", w_handle.iid);
     (w_handle.clone(), w_handle)
 }

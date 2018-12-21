@@ -1,9 +1,8 @@
 extern crate srmap;
 
-fn setup(uid: usize) -> (srmap::srmap::Handle<String, String, Option<i32>>, srmap::srmap::Handle<String, String, Option<i32>>)
+fn setup() -> (srmap::handle::handle::Handle<String, String, Option<i32>>, srmap::handle::handle::Handle<String, String, Option<i32>>)
 {
-    let (mut r, mut w) = srmap::srmap::construct::<String, String, Option<i32>>(None);
-    w.add_user(uid);
+    let (r, mut w) = srmap::construct::<String, String, Option<i32>>(None);
     (r, w)
 }
 
@@ -14,24 +13,16 @@ fn it_works() {
     let v2 = "x2".to_string();
     let v3 = "x3".to_string();
 
-    let (r0, mut w0) = setup(0 as usize); // global universe
-    let (r1, mut w1) = setup(1 as usize); // user 1
-    let (r2, mut w2) = setup(2 as usize); // user 2
-    let (r3, mut w3) = setup(3 as usize); // user 3
-
-    let uid1: usize = 0 as usize;
-
+    let (r0, mut w0) = setup(); // global universe
+    let (r1, mut w1) =  w0.clone_new_user();
 
     w0.insert(k.clone(), v.clone());
-    println!("inserting k: {}, v: {}, uid: {}", k, v, uid1);
+    println!("global insert k: {:?} v: {:?}", k.clone(), v.clone());
 
     w1.insert(k.clone(), v.clone());
-    println!("inserting k: {}, v: {}, uid: {}", k, v, uid2);
+    println!("user1 insert k: {:?} v: {:?}", k.clone(), v.clone());
 
-
-    println!("here 2");
-
-    let v_res = r.get_and(&k, |rs| { rs.iter().any(|r| *r == "x".to_string()) }, uid1.clone()).unwrap();
+    let v_res = w0.get_and(&k, |rs| { rs.iter().any(|r| *r == "x".to_string()) });
 
     println!("V: {:?}", v_res.clone());
     //
