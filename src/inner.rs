@@ -165,10 +165,13 @@ pub mod srmap {
                 }
                 g_map_w.refresh();
                 b_map_w.refresh();
+                println!("done insert");
                 return true;
+                println!("shouldn't happen");
             } else {
                 // if value exists in the global map, remove this user's name from restricted access list.
                 // otherwise, add record to the user's umap.
+                let mut res = false;
                 self.g_map_r.get_and(&k.clone(), |vs| {
                     for val in &v {
                         let mut last_seen = 0;
@@ -218,12 +221,12 @@ pub mod srmap {
 
                             b_map_w.refresh();
                             println!("updated global!");
-                            return true;
+                            res = true;
                         }
 
                     };
-                println!("no global map updates. need to add to umap.");
-                return false;});
+                });
+                return res;
             }
             println!("no global map updates. need to add to umap.");
             return false;
@@ -245,18 +248,7 @@ pub mod srmap {
                 }
             });
 
-            return Some(res_list);
-
-            // let mut to_return = Vec::new();
-            // for x in res_list.iter() {
-            //     to_return.push(x.clone());
-            // }
-            //
-            // if to_return.len() > 0 {
-            //     return Some(to_return)
-            // } else {
-            //     return None
-            // }
+            return Some(res_list)
         }
 
 
@@ -283,8 +275,6 @@ pub mod srmap {
             // update largest so that next ID is one higher
             let mut largest = self.largest.write().unwrap();
             *largest += 1;
-
-            println!("assigning id: {}", id);
 
             return id // return internal id
 

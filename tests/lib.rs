@@ -1,4 +1,6 @@
 extern crate srmap;
+pub use srmap::data::{DataType, Datas, Modification, Operation, Record, Records, TableOperation};
+
 
 fn setup() -> (srmap::handle::handle::Handle<String, String, Option<i32>>, srmap::handle::handle::Handle<String, String, Option<i32>>)
 {
@@ -9,12 +11,14 @@ fn setup() -> (srmap::handle::handle::Handle<String, String, Option<i32>>, srmap
 #[test]
 fn it_works() {
     let k = "x".to_string();
+    let k2 = "x2".to_string();
     let v = "x1".to_string();
     let v2 = "x2".to_string();
     let v3 = "x3".to_string();
 
     let (r0, mut w0) = setup(); // global universe
     let (r1, mut w1) =  w0.clone_new_user();
+    let (r2, mut w2) =  w0.clone_new_user();
 
     w0.insert(k.clone(), v.clone());
     println!("global insert k: {:?} v: {:?}", k.clone(), v.clone());
@@ -22,9 +26,27 @@ fn it_works() {
     w1.insert(k.clone(), v.clone());
     println!("user1 insert k: {:?} v: {:?}", k.clone(), v.clone());
 
-    let v_res = w0.get_and(&k, |rs| { rs.iter().any(|r| *r == "x".to_string()) });
+    w2.insert(k.clone(), v.clone());
+    println!("user2 insert k: {:?} v: {:?}", k.clone(), v.clone());
 
-    println!("V: {:?}", v_res.clone());
+    w2.insert(k.clone(), v2.clone());
+    println!("user2 insert k: {:?} v: {:?}", k.clone(), v2.clone());
+
+    w2.insert(k2.clone(), v2.clone());
+    println!("user2 insert k: {:?} v: {:?}", k2.clone(), v2.clone());
+
+    let reviewed = w2.meta_get_and(&k, |vals| {
+        println!("reading out");
+        for val in vals {
+            println!("{}: {}", k.clone(), val.clone());
+        }
+    });
+
+    // let mut res_vec = Vec::new();
+    // println!("here1");
+    // w0.get_and(&k, |s| res_vec.push(s.len()));
+    // println!("here2");
+    // println!("V: {:?}", res_vec.clone());
     //
     // w.insert(k.clone(), v2.clone(), uid2.clone());
     //

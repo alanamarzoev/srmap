@@ -46,10 +46,10 @@ pub mod handle {
            let mut container = Vec::new();
            container.push(v.clone());
            let success = self.handle.insert(k.clone(), container, self.iid);
-           println!("no matching value in gmap. inserting into user {}'s umap...", self.iid);
 
            // insert into umap if gmap insert didn't succeed
            if !success {
+               println!("no matching value in gmap. inserting into user {}'s umap...", self.iid);
                let mut add = false;
                let mut added_vec = None;
 
@@ -147,14 +147,21 @@ pub mod handle {
            F: FnOnce(&[V]) -> T,
        {
            // get records stored in umap
-           let mut umap_res = self.umap.write().unwrap().get_mut(key).unwrap().clone();
+           let mut umap_res = self.umap.write().unwrap();
+           let mut umap_res = umap_res.get_mut(key);
            let mut gmap_res = self.handle.get(key, self.iid).unwrap();
 
-           umap_res.append(&mut gmap_res);
+           match umap_res {
+               Some(mut result) => {
+                   gmap_res.append(&mut result);
+               },
+               None => {}
+           }
 
-           let mut umap_res = Some(umap_res).map(move |v| then(&*v)).unwrap();
 
-           Some(umap_res)
+           let mut gmap_res = Some(gmap_res).map(move |v| then(&*v)).unwrap();
+
+           Some(gmap_res)
        }
 
 
