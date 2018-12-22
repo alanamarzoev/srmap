@@ -64,8 +64,13 @@ pub mod handle {
                }
 
                if add {
+                   println!("adding to umap");
                    self.umap.write().unwrap().insert(k.clone(), added_vec.unwrap());
                }
+
+               let res = self.umap.read().unwrap();
+               let res = res.get(&k.clone());
+               println!("umap after insert: {:?}", res.clone());
            }
        }
 
@@ -107,20 +112,25 @@ pub mod handle {
            K: Hash + Eq,
            F: FnOnce(&[V]) -> T,
        {
-           // TODO parallelize this!!! gmap and umap reads should happen at the same time
-
            // get records stored in umap
-           let mut umap_res = self.umap.write().unwrap().get_mut(key).unwrap().clone();
+           let mut umap_res = self.umap.write().unwrap();
+           let mut umap_res = umap_res.get_mut(key);
+
            let mut gmap_res = self.handle.get(key, self.iid).unwrap();
 
-           umap_res.append(&mut gmap_res);
+           match umap_res {
+               Some(mut result) => {
+                   gmap_res.append(&mut result);
+               },
+               None => {}
+           }
 
-           let mut umap_res = Some(umap_res).map(move |v| then(&*v)).unwrap();
+           let mut gmap_res = Some(gmap_res).map(move |v| then(&*v)).unwrap();
 
            // clone meta
            let meta = self.handle.meta.clone();
 
-           Some((Some(umap_res), meta))
+           Some((Some(gmap_res), meta))
        }
 
        pub fn is_empty(&self) -> bool {

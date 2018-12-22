@@ -145,8 +145,6 @@ pub mod srmap {
         // universe.
         pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize) -> bool {
             let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
-            println!("in insert! id: {}", uid);
-
             // global map insert.
             if uid == 0 as usize {
                 for val in v.clone() {
@@ -154,7 +152,6 @@ pub mod srmap {
 
                     // Add (index, value) to global map
                     g_map_w.insert(k.clone(), val.clone());
-                    println!("inserted k: {:?} v: {:?} into g_map", k.clone(), val.clone());
 
                     // create new bitmap! no users start off having access except for the global
                     // universe.
@@ -165,9 +162,7 @@ pub mod srmap {
                 }
                 g_map_w.refresh();
                 b_map_w.refresh();
-                println!("done insert");
                 return true;
-                println!("shouldn't happen");
             } else {
                 // if value exists in the global map, remove this user's name from restricted access list.
                 // otherwise, add record to the user's umap.
@@ -208,7 +203,6 @@ pub mod srmap {
 
                         if found {
                             // give access
-                            println!("flipping bit...");
                             bmap[count] = update_access(bmap[count].clone().to_vec(), uid, true);
 
                             let bmkey = (k.clone(), val.clone());
@@ -220,7 +214,6 @@ pub mod srmap {
                             }
 
                             b_map_w.refresh();
-                            println!("updated global!");
                             res = true;
                         }
 
@@ -228,13 +221,11 @@ pub mod srmap {
                 });
                 return res;
             }
-            println!("no global map updates. need to add to umap.");
-            return false;
         }
 
 
         pub fn get(&self, k: &K, uid: usize) -> Option<Vec<V>> {
-            println!("global call to get! by id {}", uid);
+            // println!("global call to get! by id {}", uid);
             let mut res_list = Vec::new();
             self.g_map_r.get_and(&k, |set| {
                 for v in set {
