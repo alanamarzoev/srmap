@@ -36,7 +36,7 @@ pub mod handle {
 
            new_handle.add_user();
 
-           println!("new handle with uid: {}", new_handle.iid);
+           // println!("new handle with uid: {}", new_handle.iid);
            (new_handle.clone(), new_handle)
        }
 
@@ -49,7 +49,7 @@ pub mod handle {
 
            // insert into umap if gmap insert didn't succeed
            if !success {
-               println!("no matching value in gmap. inserting into user {}'s umap...", self.iid);
+               // println!("no matching value in gmap. inserting into user {}'s umap...", self.iid);
                let mut add = false;
                let mut added_vec = None;
 
@@ -64,13 +64,13 @@ pub mod handle {
                }
 
                if add {
-                   println!("adding to umap");
+                   // println!("adding to umap");
                    self.umap.write().unwrap().insert(k.clone(), added_vec.unwrap());
                }
 
                let res = self.umap.read().unwrap();
                let res = res.get(&k.clone());
-               println!("umap after insert: {:?}", res.clone());
+               // println!("umap after insert: {:?}", res.clone());
            }
        }
 

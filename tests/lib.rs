@@ -123,41 +123,77 @@ fn bench_insert_multival(b: &mut Bencher) {
         ev_handles.push(ev_r.clone());
     }
 
+    let mut dur2 = std::time::Duration::from_millis(0);
+
+    let mut num_rows = 0;
+    let start2 = std::time::Instant::now();
+    for handle in &handles {
+        let reviewed = handle.meta_get_and(&k, |vals| {
+            num_rows += vals.len();
+        });
+    }
+    dur2 += start2.elapsed();
+
+    println!(
+        "Read {} rows in {:?}s ({:.2} GETs/sec)!",
+        num_rows,
+        dur2,
+        (num_rows) as f64 / dur2.as_float_secs(),
+    );
+
     let mut dur = std::time::Duration::from_millis(0);
 
-    let mut num_keys = 0;
+    let mut num_rows = 0;
+    let start = std::time::Instant::now();
     for handle in &ev_handles {
-        let start = std::time::Instant::now();
         let reviewed = handle.meta_get_and(&k, |vals| {
-            num_keys = num_keys + vals.len();
+            num_rows += vals.len();
         });
-        dur += start.elapsed();
     }
 
-    println!(
-        "Read {} keys in {:?}s ({:.2} GETs/sec)!",
-        num_keys,
-        dur,
-        (num_keys) as f64 / dur.as_float_secs(),
-    );
-
-    let mut num_keys = 0;
-    for handle in &handles {
-        let start = std::time::Instant::now();
-        let reviewed = handle.meta_get_and(&k, |vals| {
-            num_keys += vals.len();
-        });
-        dur += start.elapsed();
-    }
+    dur += start.elapsed();
 
     println!(
-        "Read {} keys in {:?}s ({:.2} GETs/sec)!",
-        num_keys,
+        "Read {} rows in {:?}s ({:.2} GETs/sec)!",
+        num_rows,
         dur,
-        (num_keys) as f64 / dur.as_float_secs(),
+        (num_rows) as f64 / dur.as_float_secs(),
     );
-
 }
+
+
+#[bench]
+fn bench_memory_usage(b: &mut Bencher) {
+    use time::{Duration, PreciseTime};
+    use rand;
+    use rand::Rng;
+    use evmap;
+
+    let k : DataType = "x".to_string().into();
+
+    let (r, mut w) = srmap::construct::<DataType, Vec<DataType>, Option<i32>>(None);
+
+    let num_users = 1000;
+    let num_posts = 1000;
+    let num_private = 0;
+
+    let mut recs = get_posts(num_posts as usize);
+
+    for i in recs.clone() {
+        w.insert(k.clone(), i.clone());
+    }
+
+    let mut handles = Vec::new();
+
+    for i in 0..num_users {
+        let (r1, mut w1) =  w.clone_new_user();
+        for i in recs.clone() {
+            w1.insert(k.clone(), i.clone());
+        }
+        handles.push(w1.clone());
+    }
+}
+
 
 // #[bench]
 // fn bench_insert_throughput(b: &mut Bencher) {
