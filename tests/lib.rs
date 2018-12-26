@@ -194,7 +194,6 @@ fn bench_memory_usage(b: &mut Bencher) {
     }
 }
 
-
 // #[bench]
 // fn bench_insert_throughput(b: &mut Bencher) {
 //     let (_r, mut w) = srmap::construct::<String, String, Option<i32>>(None);
