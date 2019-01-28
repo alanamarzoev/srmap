@@ -47,7 +47,6 @@ pub mod handle {
 
            // insert into umap if gmap insert didn't succeed
            if !success {
-               // println!("no matching value in gmap. inserting into user {}'s umap...", self.iid);
                let mut add = false;
                let mut added_vec = None;
 
@@ -62,13 +61,11 @@ pub mod handle {
                }
 
                if add {
-                   // println!("adding to umap");
                    self.umap.write().unwrap().insert(k.clone(), added_vec.unwrap());
                }
 
                let res = self.umap.read().unwrap();
                let res = res.get(&k.clone());
-               // println!("umap after insert: {:?}", res.clone());
            }
        }
 
@@ -124,10 +121,8 @@ pub mod handle {
            }
 
            let mut gmap_res = Some(gmap_res).map(move |v| then(&*v)).unwrap();
-
            // clone meta
            let meta = self.handle.meta.clone();
-
            Some((Some(gmap_res), meta))
        }
 

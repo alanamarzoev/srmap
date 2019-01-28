@@ -19,15 +19,12 @@ pub mod srmap {
     pub fn update_access(bitmap: Vec<usize>, uid: usize, add: bool) -> Vec<usize> {
         let index = uid / 64;
         let offset = uid % 64;
-        // println!("updating bitmap access! bmap before: {:#b}. uid: {:?}", bitmap[index], uid);
-        // println!("index: {:?}, offset: {:?}", index, offset);
 
         let bmap_len = bitmap.len();
         let mut updated_map = bitmap;
         if bmap_len <= index {
             // extend the bitmap lazily to accommodate all users.
             if add {
-                // println!("extending bitmap!");
                 let num_new_elements = index - (bmap_len - 1);
                 for _el in 0..num_new_elements {
                     updated_map.push(0);
@@ -40,7 +37,6 @@ pub mod srmap {
 
         let access = 1 << offset;
         updated_map[index] = updated_map[index] ^ access; // or do i use an or and??? check this
-        // println!("bmap after: {:#b}", updated_map[0]);
         return updated_map
     }
 
@@ -55,11 +51,8 @@ pub mod srmap {
         let bmap_len = bitmap.len();
 
         if bmap_len <= index {
-            // println!("doesn't have access! shorting.");
             return false
         }
-
-        // println!("bitmap: {:#b}, uid: {}", bitmap[index], uid);
 
         let mask = 1 << offset;
         let res = bitmap[index] & mask;
@@ -160,10 +153,8 @@ pub mod srmap {
         // universe.
         pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize) -> bool {
             let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
-            // println!("inserting: k {:?} v {:?}", k, v);
             // global map insert.
             if uid == 0 as usize {
-                // println!("inserting k: {:?} v: {:?} to global map", k.clone(), v.clone());
                 for val in v.clone() {
                     self.g_records += 1;
 
@@ -181,7 +172,6 @@ pub mod srmap {
                 b_map_w.refresh();
                 return true;
             } else {
-                // println!("inserting k: {:?} v: {:?}, uid: {:?}", k.clone(), v.clone(), uid);
                 // if value exists in the global map, remove this user's name from restricted access list.
                 // otherwise, add record to the user's umap.
                 let mut res = false;
@@ -221,7 +211,6 @@ pub mod srmap {
 
                         if found {
                             // give access
-                            // println!("flipping bit");
                             bmap[count] = update_access(bmap[count].clone().to_vec(), uid, true);
                             let bmkey = (k.clone(), val.clone());
 
@@ -244,10 +233,8 @@ pub mod srmap {
 
 
         pub fn get(&self, k: &K, uid: usize) -> Option<Vec<V>> {
-            // println!("global call to get! by id {}. looking for {:?}", uid, k.clone());
             let mut res_list = Vec::new();
             self.g_map_r.get_and(&k, |set| {
-                // println!("found in gmap: {:?}", set);
                 for v in set {
                     let bmap = self
                         .b_map_r
@@ -259,7 +246,6 @@ pub mod srmap {
                     }
                 }
             });
-            // println!("returning from gmap: {:?}", res_list);
             return Some(res_list)
         }
 
@@ -287,8 +273,6 @@ pub mod srmap {
             // update largest so that next ID is one higher
             let mut largest = self.largest.write().unwrap();
             *largest += 1;
-
-            // println!("adding new user with id: {:?}", id);
 
             return id // return internal id
 

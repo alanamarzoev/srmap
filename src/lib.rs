@@ -53,21 +53,5 @@ where
     let mut w_handle = new(map.clone());
     // adds user with uid 0...
     w_handle.add_user();
-    println!("constructed new srmap. handle has uid: {}", w_handle.iid);
-    (w_handle.clone(), w_handle)
-}
-
-// Constructor for read/write handle tuple
-pub fn clone_new_user<K, V, M>(meta_init: M) -> (Handle<K, V, M>, Handle<K, V, M>)
-where
-   K: Eq + Hash + Clone + std::fmt::Debug,
-   V: Clone + Eq + std::fmt::Debug + Hash + evmap::ShallowCopy,
-   M: Clone,
-{
-    let map = SRMap::<K,V,M>::new(meta_init);
-    let mut w_handle = new(map.clone());
-    // adds user with uid 0...
-    w_handle.add_user();
-    println!("constructed new srmap. handle has uid: {}", w_handle.iid);
     (w_handle.clone(), w_handle)
 }

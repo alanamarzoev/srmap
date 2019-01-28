@@ -20,36 +20,43 @@ fn setup() -> (srmap::handle::handle::Handle<String, String, Option<i32>>, srmap
 
 #[test]
 fn it_works() {
-    let k = "x".to_string();
-    let k2 = "x2".to_string();
-    let v = "x1".to_string();
-    let v2 = "x2".to_string();
-    let v3 = "x3".to_string();
+    let k = "k1".to_string();
+    let k2 = "k2".to_string();
+    let v = "v1".to_string();
+    let v2 = "v2".to_string();
+    let v3 = "v3".to_string();
 
     let (r0, mut w0) = setup(); // global universe
-    let (r1, mut w1) =  w0.clone_new_user();
-    let (r2, mut w2) =  w0.clone_new_user();
+    let (id1, r1, mut w1) =  w0.clone_new_user();
+    let (id2, r2, mut w2) =  w0.clone_new_user();
 
-    w0.insert(k.clone(), v.clone());
     println!("global insert k: {:?} v: {:?}", k.clone(), v.clone());
+    w0.insert(k.clone(), v.clone());
+    let reviewed = w0.meta_get_and(&k, |vals| {
+        println!("global read... vals: {:#?}", vals);
+    });
 
-    w1.insert(k.clone(), v.clone());
     println!("user1 insert k: {:?} v: {:?}", k.clone(), v.clone());
+    w1.insert(k.clone(), v.clone());
+    let reviewed = w1.meta_get_and(&k, |vals| {
+        println!("user1 read... vals: {:#?}", vals);
+    });
 
-    w2.insert(k.clone(), v.clone());
     println!("user2 insert k: {:?} v: {:?}", k.clone(), v.clone());
+    w2.insert(k.clone(), v.clone());
 
-    w2.insert(k.clone(), v2.clone());
     println!("user2 insert k: {:?} v: {:?}", k.clone(), v2.clone());
+    w2.insert(k.clone(), v2.clone());
 
-    w2.insert(k2.clone(), v3.clone());
     println!("user2 insert k: {:?} v: {:?}", k2.clone(), v3.clone());
+    w2.insert(k2.clone(), v3.clone());
 
-    let reviewed = w2.meta_get_and(&k2, |vals| {
-        println!("reading out");
-        for val in vals {
-            println!("{}: {}", k2.clone(), val.clone());
-        }
+    let reviewed = w2.meta_get_and(&k, |vals| {
+        println!("user1 read... k: {} vals: {:#?}", k, vals);
+    });
+
+    let reviewed = w2.meta_get_and(&k, |vals| {
+        println!("user1 read... k: {} vals: {:#?}", k2, vals);
     });
 }
 
@@ -111,7 +118,7 @@ fn bench_insert_multival(b: &mut Bencher) {
     let mut ev_handles = Vec::new();
 
     for i in 0..num_users {
-        let (r1, mut w1) =  w.clone_new_user();
+        let (id1, r1, mut w1) =  w.clone_new_user();
         let (ev_r, mut ev_w) = evmap::new();
         for i in recs.clone() {
             w1.insert(k.clone(), i.clone());
@@ -186,7 +193,7 @@ fn bench_memory_usage(b: &mut Bencher) {
     let mut handles = Vec::new();
 
     for i in 0..num_users {
-        let (r1, mut w1) =  w.clone_new_user();
+        let (id1, r1, mut w1) =  w.clone_new_user();
         for i in recs.clone() {
             w1.insert(k.clone(), i.clone());
         }
