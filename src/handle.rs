@@ -112,19 +112,26 @@ pub mod handle {
            let mut umap_res = umap_res.get_mut(key);
 
            let mut gmap_res = self.handle.get(key, self.iid).unwrap();
+           // println!("result: {:?}", gmap_res);
 
            match umap_res {
                Some(mut result) => {
+                   // println!("result: {:?}", result);
                    gmap_res.append(&mut result);
                },
                None => {}
            }
 
-           let mut gmap_res = Some(gmap_res).map(move |v| then(&*v)).unwrap();
-           // clone meta
            let meta = self.handle.meta.clone();
-           Some((Some(gmap_res), meta))
+
+           if gmap_res.len() < 1 {
+               return Some((None, meta))
+           } else {
+               let mut gmap_res = Some(gmap_res).map(move |v| then(&*v)).unwrap();
+               return Some((Some(gmap_res), meta))
+           }
        }
+
 
        pub fn is_empty(&self) -> bool {
            if self.handle.g_map_size() > 0 {
@@ -163,7 +170,6 @@ pub mod handle {
 
 
            let mut gmap_res = Some(gmap_res).map(move |v| then(&*v)).unwrap();
-
            Some(gmap_res)
        }
 

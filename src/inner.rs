@@ -152,6 +152,7 @@ pub mod srmap {
         // If it doesn't exist in the global universe, the record is added to the user
         // universe.
         pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize) -> bool {
+            println!("Insert k: {:?}, uid: {:?}", k, uid);
             let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
             // global map insert.
             if uid == 0 as usize {
