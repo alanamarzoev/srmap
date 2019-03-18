@@ -152,7 +152,7 @@ pub mod srmap {
         // If it doesn't exist in the global universe, the record is added to the user
         // universe.
         pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize) -> bool {
-            println!("Insert k: {:?}, uid: {:?}", k, uid);
+            // println!("Insert k: {:?}, uid: {:?}", k, uid);
             let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
             // global map insert.
             if uid == 0 as usize {
@@ -235,19 +235,26 @@ pub mod srmap {
 
         pub fn get(&self, k: &K, uid: usize) -> Option<Vec<V>> {
             let mut res_list = Vec::new();
+            let mut missed = false;
             self.g_map_r.get_and(&k, |set| {
                 for v in set {
-                    let bmap = self
-                        .b_map_r
-                        .get_and(&(k.clone(), v.clone()), |s| s[0].clone())
-                        .unwrap();
-                    // println!("access to k: {:?}, v: {:?}?", k, v);
-                    if get_access(bmap, uid) {
-                        res_list.push(v.clone());
+                    match self.b_map_r.get_and(&(k.clone(), v.clone()), |s| s[0].clone()) {
+                        Some(bmap) => {
+                            if get_access(bmap, uid) {
+                                res_list.push(v.clone());
+                            }
+                        },
+                        None => {
+                            missed = true // TODO check this is functionally correct... not sure that it is
+                        }
                     }
                 }
             });
-            return Some(res_list)
+            if missed {
+                return None
+            } else {
+                return Some(res_list)
+            }
         }
 
 

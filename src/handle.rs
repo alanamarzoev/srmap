@@ -40,10 +40,19 @@ pub mod handle {
 
 
        // Add the given value to the value-set of the given key.
-       pub fn insert(&mut self, k: K, v: V) {
+       pub fn insert(&mut self, k: K, v: V, uid: Option<usize>) {
            let mut container = Vec::new();
            container.push(v.clone());
-           let success = self.handle.insert(k.clone(), container, self.iid);
+
+           let mut success;
+           match uid {
+               Some(iid) => {
+                   success = self.handle.insert(k.clone(), container, iid);
+               },
+               None => {
+                   success = self.handle.insert(k.clone(), container, self.iid);
+               }
+           }
 
            // insert into umap if gmap insert didn't succeed
            if !success {
@@ -78,8 +87,16 @@ pub mod handle {
        }
 
        // Remove the given value from the value-set of the given key.
-       pub fn remove(&mut self, k: K) {
-           self.handle.remove(&k, self.iid);
+       pub fn remove(&mut self, k: K, uid: Option<usize>) {
+           match uid {
+               Some(iid) => {
+                    self.handle.remove(&k, iid);
+               },
+               None => {
+                    self.handle.remove(&k, self.iid);
+               }
+           }
+
        }
 
        pub fn add_user(&mut self) {
