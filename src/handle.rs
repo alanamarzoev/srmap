@@ -84,13 +84,7 @@ pub mod handle {
                         .unwrap()
                         .insert(k.clone(), added_vec.unwrap());
                 }
-
-                let res = self.umap.read().unwrap();
-                let res = res.get(&k.clone());
             }
-            //self.handle.get_all(self.iid)
-
-            // println!("user {} has access to: {:#?}", self.iid, self.handle.get_all(self.iid));
         }
 
         // Replace the value-set of the given key with the given value.

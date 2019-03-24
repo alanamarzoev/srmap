@@ -159,7 +159,7 @@ pub mod srmap {
                     let mut buffer = Vec::new();
                     let mut bit_map = Vec::new();
                     bit_map.push(0 as usize);
-                    let current = b_map_w.get_and(&(k.clone(), val.clone()), |s| {
+                    b_map_w.get_and(&(k.clone(), val.clone()), |s| {
                         if s.len() > 0 {
                             outer.push(s[0].clone());
                         } else {
