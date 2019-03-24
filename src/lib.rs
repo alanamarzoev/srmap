@@ -2,6 +2,7 @@
 #![feature(test)]
 #![feature(try_from)]
 #![feature(extern_prelude)]
+#![feature(box_patterns)]
 
 #[macro_use]
 extern crate slog;
@@ -10,6 +11,7 @@ extern crate evmap;
 extern crate test;
 extern crate time;
 extern crate serde;
+
 
 #[macro_use]
 extern crate serde_derive;

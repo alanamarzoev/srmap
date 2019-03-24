@@ -42,14 +42,21 @@ pub mod handle {
        // Add the given value to the value-set of the given key.
        pub fn insert(&mut self, k: K, v: V, uid: Option<usize>) {
            let mut container = Vec::new();
+           // println!("raw v: {:?}", v);
            container.push(v.clone());
 
            let mut success;
            match uid {
                Some(iid) => {
+                   if iid > 2000 {
+                       println!("inserting: k: {:?}, v: {:?}, id: {:?}", k, container, iid);
+                   }
                    success = self.handle.insert(k.clone(), container, iid);
                },
                None => {
+                   if self.iid > 2000 {
+                       println!("inserting: k: {:?}, v: {:?}, id: {:?}", k, container, self.iid);
+                   }
                    success = self.handle.insert(k.clone(), container, self.iid);
                }
            }
@@ -75,7 +82,13 @@ pub mod handle {
 
                let res = self.umap.read().unwrap();
                let res = res.get(&k.clone());
+
+
+
            }
+           //self.handle.get_all(self.iid)
+
+           // println!("user {} has access to: {:#?}", self.iid, self.handle.get_all(self.iid));
        }
 
 
