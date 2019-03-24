@@ -1,7 +1,6 @@
 #![feature(trivial_bounds)]
 #![feature(test)]
 #![feature(try_from)]
-#![feature(extern_prelude)]
 #![feature(box_patterns)]
 
 extern crate evmap;

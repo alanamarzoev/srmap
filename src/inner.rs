@@ -8,13 +8,11 @@
 // }
 
 pub mod srmap {
+    use evmap;
     use std::collections::HashMap;
     use std::hash::Hash;
-    use std::sync::{Arc, RwLock};
-    use evmap;
     use std::sync::Mutex;
-    use std::{thread, time};
-    use std::cell::RefCell;
+    use std::sync::{Arc, RwLock};
 
     pub use data::{DataType, Datas, Modification, Operation, Record, Records, TableOperation};
 
@@ -25,7 +23,7 @@ pub mod srmap {
         let offset = uid % 64;
 
         let bmap_len = bitmap.len();
-        let mut updated_map = bitmap;
+        let updated_map = bitmap;
         if bmap_len <= index {
             // extend the bitmap lazily to accommodate all users.
             if add {
