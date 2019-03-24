@@ -158,7 +158,10 @@ pub mod srmap {
            if uid == 0 as usize {
                for val in v.clone() {
                    self.g_records += 1;
+                   // Add (index, value) to global map
                    g_map_w.insert(k.clone(), val.clone());
+                   // create new bitmap! no users start off having access except for the global
+                   // universe.
                    let mut outer = Vec::new();
                    let mut buffer = Vec::new();
                    let mut bit_map = Vec::new();
@@ -206,7 +209,7 @@ pub mod srmap {
                                        false => {
                                            found = true;
                                            //s[0].clone().what;
-                                           let mut bmap = s[0].clone();
+                                           bmap = &mut s[0];
 
                                            update_access(&mut bmap[count], uid, true);
 
@@ -232,7 +235,7 @@ pub mod srmap {
                 for v in set {
                     match self.b_map_r.get_and(&(k.clone(), v.clone()), |s| { s[0].clone() }) {
                         Some(bmap) => {
-                            if get_access(&bmap[0], uid) {
+                            if get_access(&bmap[0].borrow(), uid) {
                                 res_list.push(v.clone());
                             }
                         },
@@ -257,7 +260,7 @@ pub mod srmap {
                     let mut bmap = self.b_map_r.get_and(bm_key, |s| s[0].clone());
                     match bmap {
                         Some(mut bm) => {
-                            update_access(&mut bm[0], uid, false);
+                            update_access(&mut bm[0].borrow_mut(), uid, false);
                         }
                         None => {}
                     }
@@ -294,7 +297,7 @@ pub mod srmap {
                 let bmkey = (k.clone(), val.clone());
                 let mut bmap = self.b_map_r.get_and(&bmkey, |s| s[0].clone()).unwrap();
 
-                if get_access(&bmap[0], uid) {
+                if get_access(&bmap[0].borrow(), uid) {
                     to_return.push(bmkey);
                 }
             }

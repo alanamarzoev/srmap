@@ -42,7 +42,6 @@ pub mod handle {
        // Add the given value to the value-set of the given key.
        pub fn insert(&mut self, k: K, v: V, uid: Option<usize>) {
            let mut container = Vec::new();
-           // println!("raw v: {:?}", v);
            container.push(v.clone());
 
            let mut success;

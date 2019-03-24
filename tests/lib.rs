@@ -31,33 +31,41 @@ fn it_works() {
     let (id2, r2, mut w2) =  w0.clone_new_user();
 
     println!("global insert k: {:?} v: {:?}", k.clone(), v.clone());
-    w0.insert(k.clone(), v.clone());
-    let reviewed = w0.meta_get_and(&k, |vals| {
-        println!("global read... vals: {:#?}", vals);
-    });
+    w0.insert(k.clone(), v.clone(), None);
+    println!("global insert k: {:?} v: {:?}", k.clone(), v.clone());
+    w0.insert(k.clone(), v.clone(), None);
+    // let reviewed = w0.meta_get_and(&k, |vals| {
+    //     println!("global read... vals: {:#?}", vals);
+    // });
 
-    println!("user1 insert k: {:?} v: {:?}", k.clone(), v.clone());
-    w1.insert(k.clone(), v.clone());
-    let reviewed = w1.meta_get_and(&k, |vals| {
-        println!("user1 read... vals: {:#?}", vals);
-    });
+    println!("**** user1 insert {:?} {:?}", k.clone(), v.clone());
+    w1.insert(k.clone(), v.clone(), None);
+    // let reviewed = w1.meta_get_and(&k, |vals| {
+    //     println!("user1 read... vals: {:#?}", vals);
+    // });
 
-    println!("user2 insert k: {:?} v: {:?}", k.clone(), v.clone());
-    w2.insert(k.clone(), v.clone());
+    println!("**** user2 insert {:?} {:?}", k.clone(), v.clone());
+    w2.insert(k.clone(), v.clone(), None);
 
-    println!("user2 insert k: {:?} v: {:?}", k.clone(), v2.clone());
-    w2.insert(k.clone(), v2.clone());
+    println!("**** user2 insert {:?} {:?}", k.clone(), v.clone());
+    w2.insert(k.clone(), v.clone(), None);
 
-    println!("user2 insert k: {:?} v: {:?}", k2.clone(), v3.clone());
-    w2.insert(k2.clone(), v3.clone());
+    println!("**** user1 insert {:?} {:?}", k.clone(), v.clone());
+    w1.insert(k.clone(), v.clone(), None);
 
-    let reviewed = w2.meta_get_and(&k, |vals| {
-        println!("user1 read... k: {} vals: {:#?}", k, vals);
-    });
+    // println!("user2 insert k: {:?} v: {:?}", k.clone(), v2.clone());
+    // w2.insert(k.clone(), v2.clone(), None);
+    //
+    // println!("user2 insert k: {:?} v: {:?}", k2.clone(), v3.clone());
+    // w2.insert(k2.clone(), v3.clone(), None);
 
-    let reviewed = w2.meta_get_and(&k, |vals| {
-        println!("user1 read... k: {} vals: {:#?}", k2, vals);
-    });
+    // let reviewed = w2.meta_get_and(&k, |vals| {
+    //     println!("user1 read... k: {} vals: {:#?}", k, vals);
+    // });
+    //
+    // let reviewed = w2.meta_get_and(&k, |vals| {
+    //     println!("user1 read... k: {} vals: {:#?}", k2, vals);
+    // });
 }
 
 
@@ -110,7 +118,7 @@ fn bench_insert_multival(b: &mut Bencher) {
     let mut recs = get_posts(num_posts as usize);
 
     for i in recs.clone() {
-        w.insert(k.clone(), i.clone());
+        w.insert(k.clone(), i.clone(), None);
     }
 
 
@@ -121,7 +129,7 @@ fn bench_insert_multival(b: &mut Bencher) {
         let (id1, r1, mut w1) =  w.clone_new_user();
         let (ev_r, mut ev_w) = evmap::new();
         for i in recs.clone() {
-            w1.insert(k.clone(), i.clone());
+            w1.insert(k.clone(), i.clone(), None);
             ev_w.insert(k.clone(), i);
         }
         ev_w.refresh();
@@ -187,7 +195,7 @@ fn bench_memory_usage(b: &mut Bencher) {
     let mut recs = get_posts(num_posts as usize);
 
     for i in recs.clone() {
-        w.insert(k.clone(), i.clone());
+        w.insert(k.clone(), i.clone(), None);
     }
 
     let mut handles = Vec::new();
@@ -195,7 +203,7 @@ fn bench_memory_usage(b: &mut Bencher) {
     for i in 0..num_users {
         let (id1, r1, mut w1) =  w.clone_new_user();
         for i in recs.clone() {
-            w1.insert(k.clone(), i.clone());
+            w1.insert(k.clone(), i.clone(), None);
         }
         handles.push(w1.clone());
     }
