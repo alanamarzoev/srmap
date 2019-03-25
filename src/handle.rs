@@ -45,17 +45,17 @@ pub mod handle {
             let success;
             match uid {
                 Some(iid) => {
-                    if iid > 2000 {
-                        println!("inserting: k: {:?}, v: {:?}, id: {:?}", k, container, iid);
-                    }
+                    // if iid > 2000 {
+                    //     println!("inserting: k: {:?}, v: {:?}, id: {:?}", k, container, iid);
+                    // }
                     success = self.handle.insert(k.clone(), container, iid);
                 }
                 None => {
                     if self.iid > 2000 {
-                        println!(
-                            "inserting: k: {:?}, v: {:?}, id: {:?}",
-                            k, container, self.iid
-                        );
+                        // println!(
+                        //     "inserting: k: {:?}, v: {:?}, id: {:?}",
+                        //     k, container, self.iid
+                        // );
                     }
                     success = self.handle.insert(k.clone(), container, self.iid);
                 }
@@ -110,8 +110,8 @@ pub mod handle {
             self.iid = self.handle.add_user();
         }
 
-        pub fn refresh() {
-            return;
+        pub fn refresh(&mut self) {
+            self.handle.refresh();
         }
 
         pub fn empty(&mut self, k: K) {

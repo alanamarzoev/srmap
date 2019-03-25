@@ -148,6 +148,12 @@ pub mod srmap {
             }
         }
 
+        pub fn refresh(&mut self) {
+            let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
+            g_map_w.refresh();
+            b_map_w.refresh();
+        }
+
         pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize) -> bool {
             let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
             // global map insert.
@@ -172,8 +178,8 @@ pub mod srmap {
                     buffer.push(bit_map);
                     b_map_w.update((k.clone(), val.clone()), buffer);
                 }
-                g_map_w.refresh();
-                b_map_w.refresh();
+                // g_map_w.refresh();
+                // b_map_w.refresh();
                 return true;
             } else {
                 // if value exists in the global map, remove this user's name from restricted access list.
@@ -201,7 +207,7 @@ pub mod srmap {
                                         }
                                         false => {
                                             found = true;
-                                            //s[0].clone().what;
+                                            // // s[0].clone().what;
                                             let mut bmap = s[0].clone();
 
                                             update_access(&mut bmap[count], uid, true);
@@ -218,7 +224,7 @@ pub mod srmap {
                             }
                         }
                     }
-                    b_map_w.refresh();
+                    // b_map_w.refresh();
                 });
                 return res;
             }
