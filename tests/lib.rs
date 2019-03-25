@@ -186,8 +186,8 @@ fn bench_memory_usage(_b: &mut Bencher) {
 
     for _i in 0..num_users {
         let (_id1, _r1, mut w1) = w.clone_new_user();
-        for j in recs.clone() {
-            w1.insert(k.clone(), j.clone(), None);
+        for r in &recs {
+            w1.insert(r[0].clone(), r.clone(), None);
         }
         handles.push(w1.clone());
     }
