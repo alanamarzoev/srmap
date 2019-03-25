@@ -183,13 +183,13 @@ pub mod srmap {
                     for val in &v {
                         let mut last_seen = 0;
                         let mut count = 0 as usize;
-                        let mut found = false;
                         // attempting to find a match for this value in the global map
                         // _that this user does not yet have access to_. if this is successful,
                         // indicate that the value has been found, and update access.
                         // if not successful, insert into umap. repeat for all values.
                         for v in vs {
-                            if *v == *val && count >= last_seen && found == false {
+                            if *v == *val && count >= last_seen {
+                                let mut found = false;
                                 self.b_map_r.get_and(&(k.clone(), val.clone()), |s| {
                                     // if user doesn't yet have access to a record with a matching
                                     // value in the global map, then update this bitmap to grant
@@ -212,6 +212,9 @@ pub mod srmap {
                                         }
                                     }
                                 });
+                                if found {
+                                    break;
+                                }
                             }
                         }
                     }
