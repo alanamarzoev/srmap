@@ -197,10 +197,10 @@ fn bench_memory_usage(_b: &mut Bencher) {
             }
             println!(
                 "Inserted {} user universe {} records in {:?} ({:.2} inserts/sec)!",
-                recs.len() * (num_users / 100),
+                recs.len(),
                 i,
                 start.elapsed(),
-                (recs.len() * (num_users / 100)) as f64 / start.elapsed().as_float_secs(),
+                recs.len() as f64 / start.elapsed().as_float_secs(),
             );
         }
 
