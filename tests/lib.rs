@@ -166,28 +166,65 @@ fn bench_insert_multival(_b: &mut Bencher) {
 
 #[bench]
 fn bench_memory_usage(_b: &mut Bencher) {
-    let k: DataType = "x".to_string().into();
-
     let (_r, mut w) = srmap::construct::<DataType, Vec<DataType>, Option<i32>>(None);
 
-    let num_users = 1000;
-    let num_posts = 1000;
+    let num_users = 5000;
+    let num_posts = 100000;
 
     let recs = get_posts(num_posts as usize);
 
-    for i in recs.clone() {
-        w.insert(k.clone(), i.clone(), None);
+    let start = std::time::Instant::now();
+    for r in &recs {
+        w.insert(r[0].clone(), r.clone(), None);
     }
+    println!(
+        "Inserted {} global records in {:?} ({:.2} inserts/sec)!",
+        recs.len(),
+        start.elapsed(),
+        recs.len() as f64 / start.elapsed().as_float_secs(),
+    );
 
     let mut handles = Vec::new();
 
-    for _i in 0..num_users {
+    for i in 0..num_users {
         let (_id1, _r1, mut w1) = w.clone_new_user();
-        for r in &recs {
-            w1.insert(r[0].clone(), r.clone(), None);
+
+        // make records accessible to 1% of the users
+        if i % 100 == 0 {
+            let start = std::time::Instant::now();
+            for r in &recs {
+                w1.insert(r[0].clone(), r.clone(), None);
+            }
+            println!(
+                "Inserted {} user universe {} records in {:?} ({:.2} inserts/sec)!",
+                recs.len(),
+                i,
+                start.elapsed(),
+                recs.len() as f64 / start.elapsed().as_float_secs(),
+            );
         }
+
         handles.push(w1.clone());
     }
+
+    let start = std::time::Instant::now();
+    let mut total_rows = 0;
+    let mut total_reads = 0;
+    for handle in &handles[990..] {
+        for r in recs.iter() {
+            let _res = handle.meta_get_and(&r[0], |res| {
+                total_rows += res.len();
+                total_reads += 1;
+            });
+        }
+    }
+    println!(
+        "Read {} rows in {:?} ({:.2} reads/sec, {:.2} rows/sec)!",
+        total_rows,
+        start.elapsed(),
+        total_reads as f64 / start.elapsed().as_float_secs(),
+        total_rows as f64 / start.elapsed().as_float_secs(),
+    );
 }
 
 // #[bench]
