@@ -98,10 +98,6 @@ fn _get_private_posts(num: usize, uid: usize) -> Vec<Vec<DataType>> {
 
 #[bench]
 fn bench_insert_multival(_b: &mut Bencher) {
-    use evmap;
-
-    let k: DataType = "x".to_string().into();
-
     let (_r, mut w) = srmap::construct::<DataType, Vec<DataType>, Option<i32>>(None);
 
     let num_users = 10;
@@ -109,61 +105,62 @@ fn bench_insert_multival(_b: &mut Bencher) {
 
     let recs = get_posts(num_posts as usize);
 
-    for i in recs.clone() {
-        w.insert(k.clone(), i.clone(), None);
+    let start = std::time::Instant::now();
+    for (i, r) in recs.iter().enumerate() {
+        let k: DataType = format!("x{}", i % 10000).to_string().into();
+        w.insert(k.clone(), r.clone(), None);
     }
-
-    let mut handles = Vec::new();
-    let mut ev_handles = Vec::new();
-
-    for i in 0..num_users {
-        let (_id1, _r1, mut w1) = w.clone_new_user();
-        let (ev_r, mut ev_w) = evmap::new();
-        for j in recs.clone() {
-            w1.insert(k.clone(), j, None);
-            ev_w.insert(k.clone(), i);
-        }
-        ev_w.refresh();
-
-        handles.push(w1.clone());
-        ev_handles.push(ev_r.clone());
-    }
-
-    let mut dur2 = std::time::Duration::from_millis(0);
-
-    let mut num_rows = 0;
-    let start2 = std::time::Instant::now();
-    for handle in &handles {
-        let _reviewed = handle.meta_get_and(&k, |vals| {
-            num_rows += vals.len();
-        });
-    }
-    dur2 += start2.elapsed();
-
     println!(
-        "Read {} rows in {:?} ({:.2} GETs/sec)!",
-        num_rows,
-        dur2,
-        (num_rows) as f64 / dur2.as_float_secs(),
+        "Inserted {} global records in {:?} ({:.2} inserts/sec)!",
+        recs.len(),
+        start.elapsed(),
+        recs.len() as f64 / start.elapsed().as_float_secs(),
     );
 
-    let mut dur = std::time::Duration::from_millis(0);
+    let mut handles = Vec::new();
 
-    let mut num_rows = 0;
     let start = std::time::Instant::now();
-    for handle in &ev_handles {
-        let _reviewed = handle.meta_get_and(&k, |vals| {
-            num_rows += vals.len();
-        });
+    for i in 0..num_users {
+        let (_id1, _r1, mut w1) = w.clone_new_user();
+
+        // make records accessible to half the users
+        if i % 2 == 0 {
+            for (j, r) in recs.iter().enumerate() {
+                let k: DataType = format!("x{}", j % 10000).to_string().into();
+                /*if j % 1000 == 0 {
+                    println!("u{}, {}", i, j);
+                }*/
+                w1.insert(k.clone(), r.clone(), None);
+            }
+        }
+
+        handles.push(w1.clone());
     }
-
-    dur += start.elapsed();
-
     println!(
-        "Read {} rows in {:?} ({:.2} GETs/sec)!",
-        num_rows,
-        dur,
-        (num_rows) as f64 / dur.as_float_secs(),
+        "Inserted {} user universe records in {:?} ({:.2} inserts/sec)!",
+        recs.len() * (num_users / 2),
+        start.elapsed(),
+        (recs.len() * (num_users / 2)) as f64 / start.elapsed().as_float_secs(),
+    );
+
+    let start = std::time::Instant::now();
+    let mut total_rows = 0;
+    let mut total_reads = 0;
+    for handle in &handles {
+        for j in 0..100 {
+            let k: DataType = format!("x{}", j).to_string().into();
+            let _res = handle.meta_get_and(&k, |res| {
+                total_rows += res.len();
+                total_reads += 1;
+            });
+        }
+    }
+    println!(
+        "Read {} rows in {:?} ({:.2} reads/sec, {:.2} rows/sec)!",
+        total_rows,
+        start.elapsed(),
+        total_reads as f64 / start.elapsed().as_float_secs(),
+        total_rows as f64 / start.elapsed().as_float_secs(),
     );
 }
 
