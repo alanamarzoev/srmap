@@ -38,7 +38,7 @@ pub mod srmap {
         }
 
         let access = 1 << offset;
-        if updated_map.len() > index {
+        if updated_map.len() > index + 1 {
             updated_map[index] = updated_map[index] ^ access;
         }
     }
