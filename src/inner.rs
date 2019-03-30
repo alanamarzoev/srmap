@@ -38,10 +38,11 @@ pub mod srmap {
         }
 
         let access = 1 << offset;
-        updated_map[index] = updated_map[index] ^ access; // or do i use an or and??? check this
-                                                          // return updated_map
-                                                          // return bitmap
+        if updated_map.len() > index {
+            updated_map[index] = updated_map[index] ^ access;
+        }
     }
+
 
     pub fn get_access(bitmap: &Vec<usize>, uid: usize) -> bool {
         // println!("In get access");
@@ -178,8 +179,8 @@ pub mod srmap {
                     buffer.push(bit_map);
                     b_map_w.update((k.clone(), val.clone()), buffer);
                 }
-                // g_map_w.refresh();
-                // b_map_w.refresh();
+                g_map_w.refresh();
+                b_map_w.refresh();
                 return true;
             } else {
                 // if value exists in the global map, remove this user's name from restricted access list.
@@ -207,11 +208,10 @@ pub mod srmap {
                                         }
                                         false => {
                                             found = true;
-                                            // // s[0].clone().what;
                                             let mut bmap = s[0].clone();
-
+                                            // println!("bmap before: {:?}", bmap[count]);
                                             update_access(&mut bmap[count], uid, true);
-
+                                            // println!("bmap after: {:?}", bmap[count]);
                                             let bmkey = (k.clone(), val.clone());
                                             b_map_w.update(bmkey.clone(), bmap);
                                             res = true;
@@ -226,14 +226,20 @@ pub mod srmap {
                     }
                     // b_map_w.refresh();
                 });
+
+
                 return res;
             }
         }
 
+
         pub fn get(&self, k: &K, uid: usize) -> Option<Vec<V>> {
             let mut res_list = Vec::new();
             let mut missed = false;
+            // println!("user {:?} requesting key {:?}", uid, k);
             self.g_map_r.get_and(&k, |set| {
+                // println!("found in gmap: {:?}", set);
+
                 for v in set {
                     match self
                         .b_map_r
@@ -241,10 +247,12 @@ pub mod srmap {
                     {
                         Some(bmap) => {
                             if get_access(&bmap[0], uid) {
+                                // println!("has bmap access");
                                 res_list.push(v.clone());
                             }
                         }
                         None => {
+                            // println!("don't have bmap access");
                             missed = true // TODO check this is functionally correct... not sure that it is
                         }
                     }
@@ -264,7 +272,9 @@ pub mod srmap {
                     let mut bmap = self.b_map_r.get_and(bm_key, |s| s[0].clone());
                     match bmap {
                         Some(mut bm) => {
-                            update_access(&mut bm[0], uid, false);
+                            if bm.len() > 0 {
+                                update_access(&mut bm[0], uid, false);
+                            }
                         }
                         None => {}
                     }

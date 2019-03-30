@@ -43,11 +43,13 @@ pub mod handle {
             container.push(v.clone());
 
             let success;
+            let mut _uid = self.iid;
             match uid {
                 Some(iid) => {
                     // if iid > 2000 {
                     //     println!("inserting: k: {:?}, v: {:?}, id: {:?}", k, container, iid);
                     // }
+                    _uid = iid;
                     success = self.handle.insert(k.clone(), container, iid);
                 }
                 None => {
@@ -63,6 +65,7 @@ pub mod handle {
 
             // insert into umap if gmap insert didn't succeed
             if !success {
+                // println!("user {:?} insert k {:?} into user map", _uid, k);
                 let mut add = false;
                 let mut added_vec = None;
 
