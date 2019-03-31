@@ -9,6 +9,7 @@ extern crate slog;
 extern crate slog_term;
 extern crate test;
 extern crate time;
+extern crate bit_vec; 
 
 #[macro_use]
 extern crate serde_derive;

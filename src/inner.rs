@@ -13,60 +13,37 @@ pub mod srmap {
     use std::hash::Hash;
     use std::sync::Mutex;
     use std::sync::{Arc, RwLock};
+    use bit_vec::BitVec;
+
 
     pub use data::{DataType, Datas, Modification, Operation, Record, Records, TableOperation};
 
     // Bitmap update functions
-    pub fn update_access(bitmap: &mut Vec<usize>, uid: usize, add: bool) {
-        // println!("updating access!");
-        let index = uid / 64;
-        let offset = uid % 64;
-
+    pub fn update_access(bitmap: &mut BitVec, uid: usize, add: bool) {
         let bmap_len = bitmap.len();
-        let updated_map = bitmap;
-        if bmap_len <= index {
-            // extend the bitmap lazily to accommodate all users.
-            if add {
-                let num_new_elements = index - (bmap_len - 1);
-                for _el in 0..num_new_elements {
-                    updated_map.push(0);
-                }
+        if bmap_len <= uid {
+            let num_new_elements = uid - (bmap_len - 1);
+            for _el in 0..num_new_elements {
+                bitmap.push(false);
             }
-            // if this was an access retraction and that portion of the bitmap never existed,
-            // then there wasn't ever access to begin with. this will change when we do
-            // compression.
         }
-
-        let access = 1 << offset;
-        if updated_map.len() > index + 1 {
-            updated_map[index] = updated_map[index] ^ access;
+        if add {
+            bitmap.set(uid, true);
+        } else {
+            bitmap.set(uid, false);
         }
     }
 
 
-    pub fn get_access(bitmap: &Vec<usize>, uid: usize) -> bool {
-        // println!("In get access");
+    pub fn get_access(bitmap: &BitVec, uid: usize) -> bool {
         if uid == 0 {
-            // println!("has access! global");
             return true;
         }
-
-        let index = uid / 64;
-        let offset = uid % 64;
         let bmap_len = bitmap.len();
-
-        if bmap_len <= index {
-            return false;
-        }
-
-        let mask = 1 << offset;
-        let res = bitmap[index] & mask;
-        if res == 0 {
-            // println!("doesn't have access!");
+        if bmap_len <= uid {
             return false;
         } else {
-            // println!("has access!");
-            return true;
+            return bitmap.get(uid).unwrap();
         }
     }
 
@@ -78,11 +55,11 @@ pub mod srmap {
         M: Clone,
     {
         pub g_map_r: evmap::ReadHandle<K, V>,
-        pub b_map_r: evmap::ReadHandle<(K, V), Vec<Vec<usize>>>,
+        pub b_map_r: evmap::ReadHandle<(K, V), Vec<BitVec>>,
         pub global_w: Arc<
             Mutex<(
                 evmap::WriteHandle<K, V>,
-                evmap::WriteHandle<(K, V), Vec<Vec<usize>>>,
+                evmap::WriteHandle<(K, V), Vec<BitVec>>,
             )>,
         >,
         pub id_store: Arc<RwLock<HashMap<usize, usize>>>,
@@ -164,8 +141,8 @@ pub mod srmap {
                     g_map_w.insert(k.clone(), val.clone());
                     let mut outer = Vec::new();
                     let mut buffer = Vec::new();
-                    let mut bit_map = Vec::new();
-                    bit_map.push(0 as usize);
+                    let mut bit_map = BitVec::new();
+                    bit_map.push(false);
                     b_map_w.get_and(&(k.clone(), val.clone()), |s| {
                         if s.len() > 0 {
                             outer.push(s[0].clone());
@@ -208,12 +185,12 @@ pub mod srmap {
                                         }
                                         false => {
                                             found = true;
-                                            let mut bmap = s[0].clone();
+                                            let mut bmaps = s[0].clone();
                                             // println!("bmap before: {:?}", bmap[count]);
-                                            update_access(&mut bmap[count], uid, true);
+                                            update_access(&mut bmaps[count], uid, true);
                                             // println!("bmap after: {:?}", bmap[count]);
                                             let bmkey = (k.clone(), val.clone());
-                                            b_map_w.update(bmkey.clone(), bmap);
+                                            b_map_w.update(bmkey.clone(), bmaps);
                                             res = true;
                                         }
                                     }
@@ -226,8 +203,6 @@ pub mod srmap {
                     }
                     // b_map_w.refresh();
                 });
-
-
                 return res;
             }
         }
@@ -235,48 +210,87 @@ pub mod srmap {
 
         pub fn get(&self, k: &K, uid: usize) -> Option<Vec<V>> {
             let mut res_list = Vec::new();
-            let mut missed = false;
-            // println!("user {:?} requesting key {:?}", uid, k);
+            let mut seen_so_far: HashMap<(K, V), i32> = HashMap::new();
             self.g_map_r.get_and(&k, |set| {
-                // println!("found in gmap: {:?}", set);
-
+                let mut increment_seen_so_far = false;
+                let mut past_count = 0;
                 for v in set {
-                    match self
-                        .b_map_r
-                        .get_and(&(k.clone(), v.clone()), |s| s[0].clone())
-                    {
-                        Some(bmap) => {
-                            if get_access(&bmap[0], uid) {
-                                // println!("has bmap access");
-                                res_list.push(v.clone());
+                    match seen_so_far.get(&(k.clone(), v.clone())) {
+                        Some(count) => {
+                            past_count = count.clone();
+                            match self
+                                .b_map_r
+                                .get_and(&(k.clone(), v.clone()), |s| s[0].clone())
+                            {
+                                Some(bmap) => {
+                                    if get_access(&bmap[count.clone() as usize], uid) {
+                                        res_list.push(v.clone());
+                                        increment_seen_so_far = true;
+                                    }
+                                }
+                                None => {}
+                            }
+                        },
+                        None => {
+                            match self
+                                .b_map_r
+                                .get_and(&(k.clone(), v.clone()), |s| s[0].clone())
+                            {
+                                Some(bmap) => {
+                                    if get_access(&bmap[0], uid) {
+                                        res_list.push(v.clone());
+                                        increment_seen_so_far = true;
+                                    }
+                                }
+                                None => {}
                             }
                         }
-                        None => {
-                            // println!("don't have bmap access");
-                            missed = true // TODO check this is functionally correct... not sure that it is
-                        }
                     }
+
+                    seen_so_far.insert((k.clone(), v.clone()), past_count + 1);
                 }
             });
-            if missed {
-                return None;
-            } else {
-                return Some(res_list);
-            }
+
+            return Some(res_list);
+
         }
 
         pub fn remove(&mut self, k: &K, uid: usize) {
+            let mut seen_so_far: HashMap<(K, V), i32> = HashMap::new();
             self.g_map_r.get_and(&k, |set| {
                 for v in set.iter() {
+                    let mut increment = false;
+                    let mut old_count = 0;
                     let bm_key = &(k.clone(), v.clone());
-                    let mut bmap = self.b_map_r.get_and(bm_key, |s| s[0].clone());
-                    match bmap {
-                        Some(mut bm) => {
-                            if bm.len() > 0 {
-                                update_access(&mut bm[0], uid, false);
+                    let mut bmap = self.b_map_r.get_and(&bm_key.clone(), |s| s[0].clone());
+                    match seen_so_far.get(bm_key) {
+                        Some(count) => {
+                            old_count = count.clone();
+                            match bmap {
+                                Some(mut bm) => {
+                                    if bm.len() > (count.clone() as usize) {
+                                        update_access(&mut bm[count.clone() as usize], uid, false);
+                                        increment = true;
+                                    }
+                                }
+                                None => {}
+                            }
+                        },
+                        None => {
+                            match bmap {
+                                Some(mut bm) => {
+                                    if bm.len() > 0 {
+                                        update_access(&mut bm[0], uid, false);
+                                        increment = true;
+                                    }
+                                }
+                                None => {}
                             }
                         }
-                        None => {}
+                    };
+
+                    if increment {
+                        seen_so_far.insert(bm_key.clone(), old_count + 1);
                     }
                 }
             });
@@ -310,7 +324,6 @@ pub mod srmap {
             for (k, val) in buffer.iter() {
                 let bmkey = (k.clone(), val.clone());
                 let mut bmap = self.b_map_r.get_and(&bmkey, |s| s[0].clone()).unwrap();
-
                 if get_access(&bmap[0], uid) {
                     to_return.push(bmkey);
                 }
