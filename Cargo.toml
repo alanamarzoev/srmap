@@ -15,7 +15,7 @@ evmap = { git = "https://github.com/jonhoo/rust-evmap.git"}
 
 # uncomment to turn on all logging
 # slog = { version = "2.2.2", features = ["max_level_trace", "release_max_level_trace"] }
-bit-vec = "0.5.1"
+bit-vec = "0.5.0"
 slog = "2.2.2"
 slog-term = "2.4.0"
 time = "0.1"

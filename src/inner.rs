@@ -201,7 +201,7 @@ pub mod srmap {
                             }
                         }
                     }
-                    // b_map_w.refresh();
+                    b_map_w.refresh();
                 });
                 return res;
             }

@@ -30,28 +30,28 @@ fn it_works() {
     let (_id1, _r1, mut w1) = w0.clone_new_user();
     let (_id2, _r2, mut w2) = w0.clone_new_user();
 
-    println!("global insert k: {:?} v: {:?}", k.clone(), v.clone());
+
     w0.insert(k.clone(), v.clone(), None);
-    println!("global insert k: {:?} v: {:?}", k.clone(), v.clone());
     w0.insert(k.clone(), v.clone(), None);
-    // let reviewed = w0.meta_get_and(&k, |vals| {
-    //     println!("global read... vals: {:#?}", vals);
-    // });
+    let reviewed = w0.meta_get_and(&k, |vals| {
+        println!("vals: {:?}", vals);
+        assert!(vals.len() == 2);
+    });
 
-    println!("**** user1 insert {:?} {:?}", k.clone(), v.clone());
     w1.insert(k.clone(), v.clone(), None);
-    // let reviewed = w1.meta_get_and(&k, |vals| {
-    //     println!("user1 read... vals: {:#?}", vals);
-    // });
+    let reviewed = w1.meta_get_and(&k, |vals| {
+        println!("vals: {:?}", vals);
+        assert!(vals.len() == 1);
+    });
 
-    println!("**** user2 insert {:?} {:?}", k.clone(), v.clone());
-    w2.insert(k.clone(), v.clone(), None);
-
-    println!("**** user2 insert {:?} {:?}", k.clone(), v.clone());
-    w2.insert(k.clone(), v.clone(), None);
-
-    println!("**** user1 insert {:?} {:?}", k.clone(), v.clone());
-    w1.insert(k.clone(), v.clone(), None);
+    // println!("**** user2 insert {:?} {:?}", k.clone(), v.clone());
+    // w2.insert(k.clone(), v.clone(), None);
+    //
+    // println!("**** user2 insert {:?} {:?}", k.clone(), v.clone());
+    // w2.insert(k.clone(), v.clone(), None);
+    //
+    // println!("**** user1 insert {:?} {:?}", k.clone(), v.clone());
+    // w1.insert(k.clone(), v.clone(), None);
 
     // println!("user2 insert k: {:?} v: {:?}", k.clone(), v2.clone());
     // w2.insert(k.clone(), v2.clone(), None);
