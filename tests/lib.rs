@@ -21,28 +21,55 @@ fn setup() -> (
 #[test]
 fn it_works() {
     let k = "k1".to_string();
-    let _k2 = "k2".to_string();
+    let k2 = "k2".to_string();
     let v = "v1".to_string();
-    let _v2 = "v2".to_string();
-    let _v3 = "v3".to_string();
+    let v2 = "v2".to_string();
+    let v3 = "v3".to_string();
 
     let (_r0, mut w0) = setup(); // global universe
     let (_id1, _r1, mut w1) = w0.clone_new_user();
     let (_id2, _r2, mut w2) = w0.clone_new_user();
+    let (_id3, _r3, mut w3) = w0.clone_new_user();
 
 
     w0.insert(k.clone(), v.clone(), None);
     w0.insert(k.clone(), v.clone(), None);
+    println!("insert: global: vals: {:?}, {:?}", v.clone(), v);
     let reviewed = w0.meta_get_and(&k, |vals| {
-        println!("vals: {:?}", vals);
+        println!("read: global: vals: {:?}", vals);
         assert!(vals.len() == 2);
     });
 
+    println!("insert: u1: vals: {:?}", v);
     w1.insert(k.clone(), v.clone(), None);
     let reviewed = w1.meta_get_and(&k, |vals| {
-        println!("vals: {:?}", vals);
+        println!("read: u1 vals: {:?}", vals);
         assert!(vals.len() == 1);
     });
+
+    println!("insert: u2: vals: {:?}", v);
+    w2.insert(k.clone(), v.clone(), None);
+    println!("insert: u2: vals: {:?}", v2);
+    w2.insert(k.clone(), v2.clone(), None);
+    let reviewed = w2.meta_get_and(&k, |vals| {
+        println!("read: u2 vals: {:?}", vals);
+        assert!(vals.len() == 2);
+    });
+
+    println!("insert: u3: vals: {:?}", v3);
+    w3.insert(k.clone(), v3.clone(), None);
+    let reviewed = w3.meta_get_and(&k, |vals| {
+        println!("read: u3 vals: {:?}", vals);
+        assert!(vals.len() == 1);
+    });
+
+    println!("insert: u3: k: {:?} vals: {:?}", k2, v3);
+    w3.insert(k2.clone(), v3.clone(), None);
+    let reviewed = w3.meta_get_and(&k2, |vals| {
+        println!("read: u3 vals: {:?}", vals);
+        assert!(vals.len() == 1);
+    });
+
 
     // println!("**** user2 insert {:?} {:?}", k.clone(), v.clone());
     // w2.insert(k.clone(), v.clone(), None);
