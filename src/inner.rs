@@ -156,8 +156,8 @@ pub mod srmap {
                     buffer.push(bit_map);
                     b_map_w.update((k.clone(), val.clone()), buffer);
                 }
-                g_map_w.refresh();
-                b_map_w.refresh();
+                // g_map_w.refresh();
+                // b_map_w.refresh();
                 return true;
             } else {
                 // if value exists in the global map, remove this user's name from restricted access list.
@@ -201,7 +201,7 @@ pub mod srmap {
                             }
                         }
                     }
-                    b_map_w.refresh();
+                    // b_map_w.refresh();
                 });
                 return res;
             }
