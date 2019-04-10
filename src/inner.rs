@@ -132,7 +132,7 @@ pub mod srmap {
             b_map_w.refresh();
         }
 
-        pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize) -> bool {
+        pub fn insert(&mut self, k: K, v: Vec<V>, uid: usize) -> Option<Vec<V>> {
             let (ref mut g_map_w, ref mut b_map_w) = *self.global_w.lock().unwrap();
             // global map insert.
             if uid == 0 as usize {
@@ -158,11 +158,11 @@ pub mod srmap {
                 }
                 // g_map_w.refresh();
                 // b_map_w.refresh();
-                return true;
+                return None;
             } else {
                 // if value exists in the global map, remove this user's name from restricted access list.
                 // otherwise, add record to the user's umap.
-                let mut res = false;
+                let mut umap_list = Vec::new();
                 self.g_map_r.get_and(&k.clone(), |vs| {
                     for val in &v {
                         let mut last_seen = 0;
@@ -171,9 +171,9 @@ pub mod srmap {
                         // _that this user does not yet have access to_. if this is successful,
                         // indicate that the value has been found, and update access.
                         // if not successful, insert into umap. repeat for all values.
+                        let mut found = false;
                         for v in vs {
                             if *v == *val && count >= last_seen {
-                                let mut found = false;
                                 self.b_map_r.get_and(&(k.clone(), val.clone()), |s| {
                                     // if user doesn't yet have access to a record with a matching
                                     // value in the global map, then update this bitmap to grant
@@ -184,14 +184,14 @@ pub mod srmap {
                                             count = count + 1 as usize;
                                         }
                                         false => {
-                                            found = true;
                                             let mut bmaps = s[0].clone();
+                                            // println!("LOCAL: uid: {:?}, k: {:?}, v: {:?}", uid, k, v);
+                                            found = true;
                                             // println!("bmap before: {:?}", bmap[count]);
                                             update_access(&mut bmaps[count], uid, true);
                                             // println!("bmap after: {:?}", bmap[count]);
                                             let bmkey = (k.clone(), val.clone());
                                             b_map_w.update(bmkey.clone(), bmaps);
-                                            res = true;
                                         }
                                     }
                                 });
@@ -200,10 +200,18 @@ pub mod srmap {
                                 }
                             }
                         }
+                        if !found {
+                            // println!("GLOBAL: uid: {:?}, k: {:?}, v: {:?}", uid, k, v);
+                            umap_list.push(val.clone());
+                        }
                     }
-                    // b_map_w.refresh();
                 });
-                return res;
+
+                if umap_list.len() > 0 {
+                    return Some(umap_list);
+                } else {
+                    return None;
+                }
             }
         }
 

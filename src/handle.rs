@@ -40,54 +40,56 @@ pub mod handle {
         // Add the given value to the value-set of the given key.
         pub fn insert(&mut self, k: K, v: V, uid: Option<usize>) {
             let mut container = Vec::new();
-            container.push(v.clone());
+           container.push(v.clone());
 
-            let success;
-            let mut _uid = self.iid;
-            match uid {
-                Some(iid) => {
-                    // if iid > 2000 {
-                    //     println!("inserting: k: {:?}, v: {:?}, id: {:?}", k, container, iid);
-                    // }
-                    _uid = iid;
-                    success = self.handle.insert(k.clone(), container, iid);
-                }
-                None => {
-                    if self.iid > 2000 {
-                        // println!(
-                        //     "inserting: k: {:?}, v: {:?}, id: {:?}",
-                        //     k, container, self.iid
-                        // );
-                    }
-                    success = self.handle.insert(k.clone(), container, self.iid);
-                }
-            }
+           let to_put_in_umap;
+           let mut _uid = self.iid;
+           match uid {
+               Some(iid) => {
+                   // if iid > 2000 {
+                   //     println!("inserting: k: {:?}, v: {:?}, id: {:?}", k, container, iid);
+                   // }
+                   _uid = iid;
+                   to_put_in_umap = self.handle.insert(k.clone(), container, iid);
+               }
+               None => {
+                   if self.iid > 2000 {
+                       // println!(
+                       //     "inserting: k: {:?}, v: {:?}, id: {:?}",
+                       //     k, container, self.iid
+                       // );
+                   }
+                   to_put_in_umap = self.handle.insert(k.clone(), container, self.iid);
+               }
+           }
 
-            // insert into umap if gmap insert didn't succeed
-            if !success {
-                // println!("user {:?} insert k {:?} into user map", _uid, k);
-                let mut add = false;
-                let mut added_vec = None;
+           // insert into umap if gmap insert didn't succeed
+           match to_put_in_umap {
+               Some(list) => {
+                   let mut add = false;
+                   let mut added_vec = None;
 
-                match self.umap.write().unwrap().get_mut(&k) {
-                    Some(vec) => {
-                        vec.push(v.clone());
-                    }
-                    None => {
-                        let mut new_vec = Vec::new();
-                        new_vec.push(v.clone());
-                        add = true;
-                        added_vec = Some(new_vec);
-                    }
-                }
+                   match self.umap.write().unwrap().get_mut(&k) {
+                       Some(vec) => {
+                           vec.push(v.clone());
+                       }
+                       None => {
+                           let mut new_vec = Vec::new();
+                           new_vec.push(v.clone());
+                           add = true;
+                           added_vec = Some(new_vec);
+                       }
+                   }
 
-                if add {
-                    self.umap
-                        .write()
-                        .unwrap()
-                        .insert(k.clone(), added_vec.unwrap());
-                }
-            }
+                   if add {
+                       self.umap
+                           .write()
+                           .unwrap()
+                           .insert(k.clone(), added_vec.unwrap());
+                   }
+               },
+               None => {} // gmap insert was entirely successful
+           }
         }
 
         // Replace the value-set of the given key with the given value.
